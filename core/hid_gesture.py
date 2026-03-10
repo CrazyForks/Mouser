@@ -14,12 +14,16 @@ Requires:  pip install hidapi
 Falls back gracefully if the package or device are unavailable.
 """
 
+import sys
 import threading
 import time
 
 try:
     import hid as _hid
     HIDAPI_OK = True
+    # On macOS, allow non-exclusive HID access so the mouse keeps working
+    if sys.platform == "darwin" and hasattr(_hid, "hid_darwin_set_open_exclusive"):
+        _hid.hid_darwin_set_open_exclusive(0)
 except ImportError:
     HIDAPI_OK = False
 

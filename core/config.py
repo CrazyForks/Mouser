@@ -8,6 +8,8 @@ import os
 import sys
 
 CONFIG_DIR = os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "Mouser")
+if sys.platform == "darwin":
+    CONFIG_DIR = os.path.join(os.path.expanduser("~"), "Library", "Application Support", "Mouser")
 CONFIG_FILE = os.path.join(CONFIG_DIR, "config.json")
 
 # Which mouse events map to which friendly button names
@@ -64,12 +66,19 @@ DEFAULT_CONFIG = {
 # icon values must match filenames in images/ (without extension for png,
 # or with extension for non-png like .webp)
 KNOWN_APPS = {
+    # Windows apps
     "msedge.exe":                {"label": "Microsoft Edge",       "icon": ""},
     "chrome.exe":                {"label": "Google Chrome",        "icon": "chrom"},
     "Microsoft.Media.Player.exe":{"label": "Windows Media Player", "icon": "media.webp"},
     "wmplayer.exe":              {"label": "Windows Media Player (Classic)", "icon": "media.webp"},
     "vlc.exe":                   {"label": "VLC Media Player",     "icon": "VLC"},
     "Code.exe":                  {"label": "Visual Studio Code",   "icon": "VSCODE"},
+    # macOS apps (executable names from NSWorkspace)
+    "Safari":                    {"label": "Safari",               "icon": ""},
+    "Google Chrome":             {"label": "Google Chrome",        "icon": "chrom"},
+    "VLC":                       {"label": "VLC Media Player",     "icon": "VLC"},
+    "Code":                      {"label": "Visual Studio Code",   "icon": "VSCODE"},
+    "Finder":                    {"label": "Finder",               "icon": ""},
 }
 
 

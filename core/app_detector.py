@@ -1,124 +1,126 @@
 """
 Foreground application detector — polls the active window and fires
 a callback when the foreground app changes.
-Uses Win32 GetForegroundWindow + GetWindowThreadProcessId + OpenProcess.
-Resolves UWP apps hosted inside ApplicationFrameHost.exe by inspecting
-the CoreWindow child to find the real packaged process.
+Windows: GetForegroundWindow + QueryFullProcessImageNameW (with UWP resolution).
+macOS:   NSWorkspace.sharedWorkspace().frontmostApplication().
 """
 
-import ctypes
-import ctypes.wintypes as wt
 import os
+import sys
 import threading
 import time
 
-user32 = ctypes.windll.user32
-kernel32 = ctypes.windll.kernel32
-psapi = ctypes.windll.psapi
 
-# --- Win32 constants --------------------------------------------------------
-PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
-MAX_PATH = 260
-GW_CHILD = 5  # for GetWindow()
+# ==================================================================
+# Platform-specific get_foreground_exe()
+# ==================================================================
 
-# --- Win32 prototypes -------------------------------------------------------
-user32.GetForegroundWindow.restype = wt.HWND
-user32.GetWindowThreadProcessId.argtypes = [wt.HWND, ctypes.POINTER(wt.DWORD)]
-user32.GetWindowThreadProcessId.restype = wt.DWORD
+if sys.platform == "win32":
+    import ctypes
+    import ctypes.wintypes as wt
 
-kernel32.OpenProcess.argtypes = [wt.DWORD, wt.BOOL, wt.DWORD]
-kernel32.OpenProcess.restype = wt.HANDLE
-kernel32.CloseHandle.argtypes = [wt.HANDLE]
-kernel32.CloseHandle.restype = wt.BOOL
+    user32 = ctypes.windll.user32
+    kernel32 = ctypes.windll.kernel32
 
-# QueryFullProcessImageNameW (Vista+)
-kernel32.QueryFullProcessImageNameW.argtypes = [
-    wt.HANDLE, wt.DWORD,
-    ctypes.c_wchar_p, ctypes.POINTER(wt.DWORD),
-]
-kernel32.QueryFullProcessImageNameW.restype = wt.BOOL
+    PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+    MAX_PATH = 260
 
-# For resolving UWP child windows
-user32.FindWindowExW.argtypes = [wt.HWND, wt.HWND, wt.LPCWSTR, wt.LPCWSTR]
-user32.FindWindowExW.restype = wt.HWND
+    user32.GetForegroundWindow.restype = wt.HWND
+    user32.GetWindowThreadProcessId.argtypes = [wt.HWND, ctypes.POINTER(wt.DWORD)]
+    user32.GetWindowThreadProcessId.restype = wt.DWORD
 
-user32.GetClassNameW.argtypes = [wt.HWND, ctypes.c_wchar_p, ctypes.c_int]
-user32.GetClassNameW.restype = ctypes.c_int
+    kernel32.OpenProcess.argtypes = [wt.DWORD, wt.BOOL, wt.DWORD]
+    kernel32.OpenProcess.restype = wt.HANDLE
+    kernel32.CloseHandle.argtypes = [wt.HANDLE]
+    kernel32.CloseHandle.restype = wt.BOOL
 
-# EnumChildWindows callback type
-WNDENUMPROC = ctypes.WINFUNCTYPE(wt.BOOL, wt.HWND, wt.LPARAM)
-user32.EnumChildWindows.argtypes = [wt.HWND, WNDENUMPROC, wt.LPARAM]
-user32.EnumChildWindows.restype = wt.BOOL
+    kernel32.QueryFullProcessImageNameW.argtypes = [
+        wt.HANDLE, wt.DWORD,
+        ctypes.c_wchar_p, ctypes.POINTER(wt.DWORD),
+    ]
+    kernel32.QueryFullProcessImageNameW.restype = wt.BOOL
 
+    user32.FindWindowExW.argtypes = [wt.HWND, wt.HWND, wt.LPCWSTR, wt.LPCWSTR]
+    user32.FindWindowExW.restype = wt.HWND
 
-def _exe_from_pid(pid: int) -> str | None:
-    """Return the .exe basename for a given PID, or None."""
-    hproc = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
-    if not hproc:
-        return None
-    try:
-        buf = ctypes.create_unicode_buffer(MAX_PATH)
-        size = wt.DWORD(MAX_PATH)
-        if kernel32.QueryFullProcessImageNameW(hproc, 0, buf, ctypes.byref(size)):
-            return os.path.basename(buf.value)
-    finally:
-        kernel32.CloseHandle(hproc)
-    return None
+    user32.GetClassNameW.argtypes = [wt.HWND, ctypes.c_wchar_p, ctypes.c_int]
+    user32.GetClassNameW.restype = ctypes.c_int
 
+    WNDENUMPROC = ctypes.WINFUNCTYPE(wt.BOOL, wt.HWND, wt.LPARAM)
+    user32.EnumChildWindows.argtypes = [wt.HWND, WNDENUMPROC, wt.LPARAM]
+    user32.EnumChildWindows.restype = wt.BOOL
 
-def _resolve_uwp_child(hwnd) -> str | None:
-    """
-    ApplicationFrameHost.exe hosts UWP apps.  The actual app lives in a
-    child window whose class is 'Windows.UI.Core.CoreWindow'.  Find that
-    child and return the .exe of its owning process.
-    """
-    host_pid = wt.DWORD()
-    user32.GetWindowThreadProcessId(hwnd, ctypes.byref(host_pid))
-
-    result = [None]
-
-    def _enum_cb(child_hwnd, _lparam):
-        # Check class name of each child
-        cls = ctypes.create_unicode_buffer(256)
-        user32.GetClassNameW(child_hwnd, cls, 256)
-        if cls.value == "Windows.UI.Core.CoreWindow":
-            child_pid = wt.DWORD()
-            user32.GetWindowThreadProcessId(child_hwnd, ctypes.byref(child_pid))
-            # Only useful if the child is a different process than the host
-            if child_pid.value != host_pid.value:
-                exe = _exe_from_pid(child_pid.value)
-                if exe:
-                    result[0] = exe
-                    return False  # stop enumeration
-        return True  # continue
-
-    user32.EnumChildWindows(hwnd, WNDENUMPROC(_enum_cb), 0)
-    return result[0]
-
-
-def get_foreground_exe() -> str | None:
-    """Return the .exe filename of the current foreground window, or None.
-    Resolves UWP apps hosted in ApplicationFrameHost.exe."""
-    hwnd = user32.GetForegroundWindow()
-    if not hwnd:
+    def _exe_from_pid(pid: int) -> str | None:
+        hproc = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+        if not hproc:
+            return None
+        try:
+            buf = ctypes.create_unicode_buffer(MAX_PATH)
+            size = wt.DWORD(MAX_PATH)
+            if kernel32.QueryFullProcessImageNameW(hproc, 0, buf, ctypes.byref(size)):
+                return os.path.basename(buf.value)
+        finally:
+            kernel32.CloseHandle(hproc)
         return None
 
-    pid = wt.DWORD()
-    user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
-    if pid.value == 0:
+    def _resolve_uwp_child(hwnd) -> str | None:
+        host_pid = wt.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(host_pid))
+        result = [None]
+
+        def _enum_cb(child_hwnd, _lparam):
+            cls = ctypes.create_unicode_buffer(256)
+            user32.GetClassNameW(child_hwnd, cls, 256)
+            if cls.value == "Windows.UI.Core.CoreWindow":
+                child_pid = wt.DWORD()
+                user32.GetWindowThreadProcessId(child_hwnd, ctypes.byref(child_pid))
+                if child_pid.value != host_pid.value:
+                    exe = _exe_from_pid(child_pid.value)
+                    if exe:
+                        result[0] = exe
+                        return False
+            return True
+
+        user32.EnumChildWindows(hwnd, WNDENUMPROC(_enum_cb), 0)
+        return result[0]
+
+    def get_foreground_exe() -> str | None:
+        """Return the .exe filename of the current foreground window, or None."""
+        hwnd = user32.GetForegroundWindow()
+        if not hwnd:
+            return None
+        pid = wt.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        if pid.value == 0:
+            return None
+        exe = _exe_from_pid(pid.value)
+        if not exe:
+            return None
+        if exe.lower() == "applicationframehost.exe":
+            real = _resolve_uwp_child(hwnd)
+            if real:
+                return real
+        return exe
+
+elif sys.platform == "darwin":
+    def get_foreground_exe() -> str | None:
+        """Return the bundle-exe name of the frontmost app on macOS."""
+        try:
+            from AppKit import NSWorkspace
+            app = NSWorkspace.sharedWorkspace().frontmostApplication()
+            if app is None:
+                return None
+            url = app.executableURL()
+            if url:
+                return os.path.basename(url.path())
+            ident = app.bundleIdentifier()
+            return ident or app.localizedName()
+        except Exception:
+            return None
+
+else:
+    def get_foreground_exe() -> str | None:
         return None
-
-    exe = _exe_from_pid(pid.value)
-    if not exe:
-        return None
-
-    # UWP apps appear as ApplicationFrameHost.exe — resolve the real app
-    if exe.lower() == "applicationframehost.exe":
-        real = _resolve_uwp_child(hwnd)
-        if real:
-            return real
-
-    return exe
 
 
 class AppDetector:

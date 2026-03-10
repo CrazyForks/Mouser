@@ -11,6 +11,7 @@ _t0 = _time.perf_counter()          # ◄ startup clock
 
 import sys
 import os
+import signal
 
 # Ensure project root on path — works for both normal Python and PyInstaller
 if getattr(sys, "frozen", False):
@@ -65,6 +66,20 @@ def main():
     app.setApplicationName("Mouser")
     app.setOrganizationName("Mouser")
     app.setWindowIcon(_app_icon())
+
+    # macOS: allow Ctrl+C in terminal to quit the app
+    signal.signal(signal.SIGINT, signal.SIG_DFL)
+
+    if sys.platform == "darwin":
+        # SIGUSR1 thread dump (useful for debugging on macOS)
+        import traceback
+        def _dump_threads(sig, frame):
+            import threading
+            for t in threading.enumerate():
+                print(f"\n--- {t.name} ---")
+                if t.ident:
+                    traceback.print_stack(sys._current_frames().get(t.ident))
+        signal.signal(signal.SIGUSR1, _dump_threads)
 
     _t6 = _time.perf_counter()
     # ── Engine (created but started AFTER UI is visible) ───────
