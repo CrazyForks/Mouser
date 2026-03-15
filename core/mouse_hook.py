@@ -249,6 +249,18 @@ if sys.platform == "win32":
             self._last_rehook_time = 0
             self._device_connected = False
             self._connection_change_cb = None
+            self._gesture_direction_enabled = False
+            self._gesture_threshold = 50.0
+            self._gesture_deadzone = 40.0
+            self._gesture_timeout_ms = 3000
+            self._gesture_cooldown_ms = 500
+            self._gesture_tracking = False
+            self._gesture_triggered = False
+            self._gesture_started_at = 0.0
+            self._gesture_delta_x = 0.0
+            self._gesture_delta_y = 0.0
+            self._gesture_cooldown_until = 0.0
+            self._gesture_input_source = None
 
         def register(self, event_type, callback):
             self._callbacks.setdefault(event_type, []).append(callback)
@@ -265,7 +277,15 @@ if sys.platform == "win32":
 
         def configure_gestures(self, enabled=False, threshold=50,
                                deadzone=40, timeout_ms=3000, cooldown_ms=500):
-            self._gesture_direction_enabled = enabled
+            self._gesture_direction_enabled = bool(enabled)
+            self._gesture_threshold = float(max(5, threshold))
+            self._gesture_deadzone = float(max(0, deadzone))
+            self._gesture_timeout_ms = max(250, int(timeout_ms))
+            self._gesture_cooldown_ms = max(0, int(cooldown_ms))
+            if not self._gesture_direction_enabled:
+                self._gesture_tracking = False
+                self._gesture_triggered = False
+                self._gesture_input_source = None
 
         def set_connection_change_callback(self, cb):
             """Register ``cb(connected: bool)`` invoked on device connect/disconnect."""
@@ -310,6 +330,116 @@ if sys.platform == "win32":
                     cb(event)
                 except Exception as e:
                     print(f"[MouseHook] callback error: {e}")
+
+        def _hid_gesture_available(self):
+            return self._hid_gesture is not None and self._device_connected
+
+        def _gesture_cooldown_active(self):
+            return time.monotonic() < self._gesture_cooldown_until
+
+        def _start_gesture_tracking(self):
+            self._gesture_tracking = self._gesture_direction_enabled
+            self._gesture_started_at = time.monotonic()
+            self._gesture_delta_x = 0.0
+            self._gesture_delta_y = 0.0
+            self._gesture_input_source = None
+
+        def _finish_gesture_tracking(self):
+            self._gesture_tracking = False
+            self._gesture_started_at = 0.0
+            self._gesture_delta_x = 0.0
+            self._gesture_delta_y = 0.0
+            self._gesture_input_source = None
+
+        def _detect_gesture_event(self):
+            delta_x = self._gesture_delta_x
+            delta_y = self._gesture_delta_y
+
+            abs_x = abs(delta_x)
+            abs_y = abs(delta_y)
+            dominant = max(abs_x, abs_y)
+            if dominant < self._gesture_threshold:
+                return None
+
+            cross_limit = max(self._gesture_deadzone, dominant * 0.35)
+
+            if abs_x > abs_y:
+                if abs_y > cross_limit:
+                    return None
+                if delta_x > 0:
+                    return MouseEvent.GESTURE_SWIPE_RIGHT
+                return MouseEvent.GESTURE_SWIPE_LEFT
+
+            if abs_x > cross_limit:
+                return None
+            if delta_y > 0:
+                return MouseEvent.GESTURE_SWIPE_DOWN
+            return MouseEvent.GESTURE_SWIPE_UP
+
+        def _accumulate_gesture_delta(self, delta_x, delta_y, source):
+            if not (self._gesture_direction_enabled and self._gesture_active):
+                return
+            if self._gesture_cooldown_active():
+                self._emit_debug(
+                    f"Gesture cooldown active source={source} "
+                    f"dx={delta_x} dy={delta_y}"
+                )
+                return
+            if not self._gesture_tracking:
+                self._emit_debug(f"Gesture tracking started source={source}")
+                self._start_gesture_tracking()
+
+            elapsed_ms = (time.monotonic() - self._gesture_started_at) * 1000.0
+            if elapsed_ms > self._gesture_timeout_ms:
+                self._emit_debug(
+                    f"Gesture segment reset timeout source={source} "
+                    f"accum_x={self._gesture_delta_x} accum_y={self._gesture_delta_y}"
+                )
+                self._start_gesture_tracking()
+
+            if self._gesture_input_source not in (None, source):
+                self._emit_debug(
+                    f"Gesture source locked to {self._gesture_input_source}; "
+                    f"ignoring {source} dx={delta_x} dy={delta_y}"
+                )
+                return
+            self._gesture_input_source = source
+
+            self._gesture_delta_x += delta_x
+            self._gesture_delta_y += delta_y
+            self._emit_debug(
+                f"Gesture segment source={source} "
+                f"accum_x={self._gesture_delta_x} accum_y={self._gesture_delta_y}"
+            )
+
+            gesture_event = self._detect_gesture_event()
+            if not gesture_event:
+                return
+
+            self._gesture_triggered = True
+            self._emit_debug(
+                "Gesture detected "
+                f"{gesture_event} source={source} "
+                f"delta_x={self._gesture_delta_x} delta_y={self._gesture_delta_y}"
+            )
+            self._dispatch(
+                MouseEvent(
+                    gesture_event,
+                    {
+                        "delta_x": self._gesture_delta_x,
+                        "delta_y": self._gesture_delta_y,
+                        "source": source,
+                    },
+                )
+            )
+            self._gesture_cooldown_until = (
+                time.monotonic() + self._gesture_cooldown_ms / 1000.0
+            )
+            self._emit_debug(
+                f"Gesture cooldown started source={source} "
+                f"for_ms={self._gesture_cooldown_ms}"
+            )
+            self._finish_gesture_tracking()
 
         _WM_NAMES = {
             0x0200: "WM_MOUSEMOVE",
@@ -473,6 +603,8 @@ if sys.platform == "win32":
                 self._check_raw_mouse_gesture(header.hDevice, buf)
 
         def _check_raw_mouse_gesture(self, hDevice, buf):
+            if self._hid_gesture_available():
+                return
             mouse = RAWMOUSE.from_buffer_copy(buf, sizeof(RAWINPUTHEADER))
             raw_btns = mouse.ulRawButtons
             prev_btns = self._prev_raw_buttons.get(hDevice, 0)
@@ -486,6 +618,7 @@ if sys.platform == "win32":
             if extra_now and not extra_prev:
                 if not self._gesture_active:
                     self._gesture_active = True
+                    self._gesture_triggered = False
                     print(f"[MouseHook] Gesture DOWN (rawBtns extra: 0x{extra_now:X})")
             elif not extra_now and extra_prev:
                 if self._gesture_active:
@@ -599,13 +732,31 @@ if sys.platform == "win32":
         def _on_hid_gesture_down(self):
             if not self._gesture_active:
                 self._gesture_active = True
+                self._gesture_triggered = False
                 self._emit_debug("HID gesture button down")
+                if self._gesture_direction_enabled and not self._gesture_cooldown_active():
+                    self._start_gesture_tracking()
+                else:
+                    self._gesture_tracking = False
+                    self._gesture_triggered = False
 
         def _on_hid_gesture_up(self):
             if self._gesture_active:
+                should_click = not self._gesture_triggered
                 self._gesture_active = False
-                self._emit_debug("HID gesture button up")
-                self._dispatch(MouseEvent(MouseEvent.GESTURE_CLICK))
+                self._finish_gesture_tracking()
+                self._gesture_triggered = False
+                self._emit_debug(
+                    f"HID gesture button up click_candidate={str(should_click).lower()}"
+                )
+                if should_click:
+                    self._dispatch(MouseEvent(MouseEvent.GESTURE_CLICK))
+
+        def _on_hid_gesture_move(self, delta_x, delta_y):
+            self._emit_debug(
+                f"HID rawxy move dx={delta_x} dy={delta_y}"
+            )
+            self._accumulate_gesture_delta(delta_x, delta_y, "hid_rawxy")
 
         def _on_hid_connect(self):
             self._set_device_connected(True)
@@ -620,6 +771,7 @@ if sys.platform == "win32":
                 self._hid_gesture = HidGestureListener(
                     on_down=self._on_hid_gesture_down,
                     on_up=self._on_hid_gesture_up,
+                    on_move=self._on_hid_gesture_move,
                     on_connect=self._on_hid_connect,
                     on_disconnect=self._on_hid_disconnect,
                 )

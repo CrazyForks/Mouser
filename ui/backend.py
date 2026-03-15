@@ -161,7 +161,7 @@ class Backend(QObject):
 
     @Property(bool, constant=True)
     def supportsGestureDirections(self):
-        return sys.platform == "darwin"
+        return sys.platform in ("darwin", "win32")
 
     @Property(str, notify=activeProfileChanged)
     def activeProfile(self):
