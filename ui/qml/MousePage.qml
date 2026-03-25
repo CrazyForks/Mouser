@@ -375,7 +375,19 @@ Item {
         var actions = backend.allActions
         for (var i = 0; i < actions.length; i++)
             if (actions[i].id === actionId) return i
+        // Custom shortcut: point to the __custom__ sentinel at the end
+        if (actionId.startsWith("custom:")) return actions.length - 1
         return 0
+    }
+
+    function customLabel(actionId) {
+        if (!actionId.startsWith("custom:")) return ""
+        var parts = actionId.substring(7).split("+")
+        return parts.map(function(p){return p.charAt(0).toUpperCase()+p.slice(1)}).join(" + ")
+    }
+
+    function isCustomAction(actionId) {
+        return actionId.startsWith("custom:")
     }
 
     function gestureSummary() {
@@ -1161,9 +1173,16 @@ Item {
                                         model: backend.allActions
                                         delegate: ActionChip {
                                             actionId: modelData.id
-                                            actionLabel: modelData.label
-                                            isCurrent: modelData.id === hscrollLeftActionId
+                                            actionLabel: modelData.id === "__custom__" && isCustomAction(hscrollLeftActionId)
+                                                         ? customLabel(hscrollLeftActionId) : modelData.label
+                                            isCurrent: modelData.id === "__custom__"
+                                                       ? isCustomAction(hscrollLeftActionId)
+                                                       : modelData.id === hscrollLeftActionId
                                             onPicked: function(aid) {
+                                                if (aid === "__custom__") {
+                                                    keyCaptureDialog.open(selectedProfile, "hscroll_left")
+                                                    return
+                                                }
                                                 backend.setProfileMapping(
                                                     selectedProfile, "hscroll_left", aid)
                                             }
@@ -1186,9 +1205,16 @@ Item {
                                         model: backend.allActions
                                         delegate: ActionChip {
                                             actionId: modelData.id
-                                            actionLabel: modelData.label
-                                            isCurrent: modelData.id === hscrollRightActionId
+                                            actionLabel: modelData.id === "__custom__" && isCustomAction(hscrollRightActionId)
+                                                         ? customLabel(hscrollRightActionId) : modelData.label
+                                            isCurrent: modelData.id === "__custom__"
+                                                       ? isCustomAction(hscrollRightActionId)
+                                                       : modelData.id === hscrollRightActionId
                                             onPicked: function(aid) {
+                                                if (aid === "__custom__") {
+                                                    keyCaptureDialog.open(selectedProfile, "hscroll_right")
+                                                    return
+                                                }
                                                 backend.setProfileMapping(
                                                     selectedProfile, "hscroll_right", aid)
                                             }
@@ -1217,8 +1243,14 @@ Item {
                                     Material.accent: theme.accent
                                     font { family: uiState.fontFamily; pixelSize: 11 }
                                     currentIndex: actionIndexForId(gestureTapActionId)
+                                    displayText: isCustomAction(gestureTapActionId)
+                                                 ? customLabel(gestureTapActionId) : currentText
                                     onActivated: function(index) {
                                         var aid = backend.allActions[index].id
+                                        if (aid === "__custom__") {
+                                            keyCaptureDialog.open(selectedProfile, "gesture")
+                                            return
+                                        }
                                         backend.setProfileMapping(selectedProfile, "gesture", aid)
                                         selectedActionId = aid
                                     }
@@ -1302,11 +1334,16 @@ Item {
                                         Material.accent: theme.accent
                                         font { family: uiState.fontFamily; pixelSize: 11 }
                                         currentIndex: actionIndexForId(gestureLeftActionId)
+                                        displayText: isCustomAction(gestureLeftActionId)
+                                                     ? customLabel(gestureLeftActionId) : currentText
                                         onActivated: function(index) {
+                                            var aid = backend.allActions[index].id
+                                            if (aid === "__custom__") {
+                                                keyCaptureDialog.open(selectedProfile, "gesture_left")
+                                                return
+                                            }
                                             backend.setProfileMapping(
-                                                selectedProfile,
-                                                "gesture_left",
-                                                backend.allActions[index].id)
+                                                selectedProfile, "gesture_left", aid)
                                         }
                                     }
                                 }
@@ -1329,11 +1366,16 @@ Item {
                                         Material.accent: theme.accent
                                         font { family: uiState.fontFamily; pixelSize: 11 }
                                         currentIndex: actionIndexForId(gestureRightActionId)
+                                        displayText: isCustomAction(gestureRightActionId)
+                                                     ? customLabel(gestureRightActionId) : currentText
                                         onActivated: function(index) {
+                                            var aid = backend.allActions[index].id
+                                            if (aid === "__custom__") {
+                                                keyCaptureDialog.open(selectedProfile, "gesture_right")
+                                                return
+                                            }
                                             backend.setProfileMapping(
-                                                selectedProfile,
-                                                "gesture_right",
-                                                backend.allActions[index].id)
+                                                selectedProfile, "gesture_right", aid)
                                         }
                                     }
                                 }
@@ -1356,11 +1398,16 @@ Item {
                                         Material.accent: theme.accent
                                         font { family: uiState.fontFamily; pixelSize: 11 }
                                         currentIndex: actionIndexForId(gestureUpActionId)
+                                        displayText: isCustomAction(gestureUpActionId)
+                                                     ? customLabel(gestureUpActionId) : currentText
                                         onActivated: function(index) {
+                                            var aid = backend.allActions[index].id
+                                            if (aid === "__custom__") {
+                                                keyCaptureDialog.open(selectedProfile, "gesture_up")
+                                                return
+                                            }
                                             backend.setProfileMapping(
-                                                selectedProfile,
-                                                "gesture_up",
-                                                backend.allActions[index].id)
+                                                selectedProfile, "gesture_up", aid)
                                         }
                                     }
                                 }
@@ -1383,11 +1430,16 @@ Item {
                                         Material.accent: theme.accent
                                         font { family: uiState.fontFamily; pixelSize: 11 }
                                         currentIndex: actionIndexForId(gestureDownActionId)
+                                        displayText: isCustomAction(gestureDownActionId)
+                                                     ? customLabel(gestureDownActionId) : currentText
                                         onActivated: function(index) {
+                                            var aid = backend.allActions[index].id
+                                            if (aid === "__custom__") {
+                                                keyCaptureDialog.open(selectedProfile, "gesture_down")
+                                                return
+                                            }
                                             backend.setProfileMapping(
-                                                selectedProfile,
-                                                "gesture_down",
-                                                backend.allActions[index].id)
+                                                selectedProfile, "gesture_down", aid)
                                         }
                                     }
                                 }
@@ -1423,9 +1475,17 @@ Item {
                                                 model: modelData.actions
                                                 delegate: ActionChip {
                                                     actionId: modelData.id
-                                                    actionLabel: modelData.label
-                                                    isCurrent: modelData.id === selectedActionId
+                                                    actionLabel: modelData.id === "__custom__" && isCustomAction(selectedActionId)
+                                                                 ? customLabel(selectedActionId)
+                                                                 : modelData.label
+                                                    isCurrent: modelData.id === "__custom__"
+                                                               ? isCustomAction(selectedActionId)
+                                                               : modelData.id === selectedActionId
                                                     onPicked: function(aid) {
+                                                        if (aid === "__custom__") {
+                                                            keyCaptureDialog.open(selectedProfile, selectedButton)
+                                                            return
+                                                        }
                                                         backend.setProfileMapping(
                                                             selectedProfile,
                                                             selectedButton, aid)
@@ -2218,6 +2278,19 @@ Item {
                 color: theme.textSecondary
                 wrapMode: Text.WordWrap
             }
+        }
+    }
+
+    // ── Key capture dialog for custom shortcuts ──────────────
+    KeyCaptureDialog {
+        id: keyCaptureDialog
+        onCaptured: function(comboString) {
+            backend.setProfileMapping(
+                keyCaptureDialog.targetProfile,
+                keyCaptureDialog.targetButton,
+                "custom:" + comboString)
+            refreshSelectedProfileMappings()
+            selectedActionId = "custom:" + comboString
         }
     }
 }

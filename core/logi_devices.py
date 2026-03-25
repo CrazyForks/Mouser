@@ -26,6 +26,7 @@ DEFAULT_BUTTON_LAYOUT = (
     "xbutton2",
     "hscroll_left",
     "hscroll_right",
+    "mode_shift",
 )
 
 

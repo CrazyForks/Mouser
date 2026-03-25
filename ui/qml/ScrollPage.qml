@@ -245,6 +245,95 @@ Item {
                 }
             }
 
+            Item { width: 1; height: 16; visible: backend.smartShiftSupported }
+
+            Rectangle {
+                visible: backend.smartShiftSupported
+                width: parent.width - 72
+                anchors.horizontalCenter: parent.horizontalCenter
+                height: smartShiftContent.implicitHeight + 40
+                radius: Theme.radius
+                color: scrollPage.theme.bgCard
+                border.width: 1
+                border.color: scrollPage.theme.border
+
+                Column {
+                    id: smartShiftContent
+                    anchors {
+                        left: parent.left
+                        right: parent.right
+                        top: parent.top
+                        margins: 20
+                    }
+                    spacing: 12
+
+                    Text {
+                        text: "Scroll Wheel Mode"
+                        font {
+                            family: uiState.fontFamily
+                            pixelSize: 16
+                            bold: true
+                        }
+                        color: scrollPage.theme.textPrimary
+                    }
+
+                    Text {
+                        text: "Switch between tactile ratchet scrolling and smooth free-spin."
+                        font {
+                            family: uiState.fontFamily
+                            pixelSize: 12
+                        }
+                        color: scrollPage.theme.textSecondary
+                    }
+
+                    Row {
+                        width: parent.width
+                        spacing: 10
+
+                        Repeater {
+                            model: [
+                                { value: "ratchet", label: "Ratchet" },
+                                { value: "freespin", label: "Free Spin" }
+                            ]
+
+                            delegate: Rectangle {
+                                required property var modelData
+                                width: Math.max(96, ssText.implicitWidth + 28)
+                                height: 38
+                                radius: 10
+                                color: backend.smartShiftMode === modelData.value
+                                       ? scrollPage.theme.accentDim
+                                       : scrollPage.theme.bgSubtle
+                                border.width: backend.smartShiftMode === modelData.value ? 2 : 1
+                                border.color: backend.smartShiftMode === modelData.value
+                                              ? scrollPage.theme.accent
+                                              : scrollPage.theme.border
+
+                                Text {
+                                    id: ssText
+                                    anchors.centerIn: parent
+                                    text: modelData.label
+                                    font {
+                                        family: uiState.fontFamily
+                                        pixelSize: 12
+                                        bold: backend.smartShiftMode === modelData.value
+                                    }
+                                    color: backend.smartShiftMode === modelData.value
+                                           ? scrollPage.theme.accent
+                                           : scrollPage.theme.textPrimary
+                                }
+
+                                MouseArea {
+                                    anchors.fill: parent
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: backend.setSmartShift(modelData.value)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             Item { width: 1; height: 16 }
 
             Rectangle {

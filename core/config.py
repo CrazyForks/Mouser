@@ -31,6 +31,7 @@ BUTTON_NAMES = {
     "xbutton2":      "Forward button",
     "hscroll_left":  "Horizontal scroll left",
     "hscroll_right": "Horizontal scroll right",
+    "mode_shift":    "Mode shift button",
 }
 
 GESTURE_DIRECTION_BUTTONS = (
@@ -60,10 +61,11 @@ BUTTON_TO_EVENTS = {
     "xbutton2":      ("xbutton2_down", "xbutton2_up"),
     "hscroll_left":  ("hscroll_left",),
     "hscroll_right": ("hscroll_right",),
+    "mode_shift":    ("mode_shift_down", "mode_shift_up"),
 }
 
 DEFAULT_CONFIG = {
-    "version": 5,
+    "version": 6,
     "active_profile": "default",
     "profiles": {
         "default": {
@@ -80,6 +82,7 @@ DEFAULT_CONFIG = {
                 "xbutton2": "alt_tab",
                 "hscroll_left": "browser_back",
                 "hscroll_right": "browser_forward",
+                "mode_shift": "none",
             },
         }
     },
@@ -90,6 +93,7 @@ DEFAULT_CONFIG = {
         "invert_hscroll": False,  # swap horizontal scroll directions
         "invert_vscroll": False,  # swap vertical scroll directions
         "dpi": 1000,              # pointer speed / DPI setting
+        "smart_shift_mode": "ratchet",
         "gesture_threshold": 50,
         "gesture_deadzone": 40,
         "gesture_timeout_ms": 3000,
@@ -283,6 +287,12 @@ def _migrate(cfg):
                 settings.get("start_with_windows", False)
             )
         cfg["version"] = 5
+
+    if version < 6:
+        for pdata in cfg.get("profiles", {}).values():
+            mappings = pdata.setdefault("mappings", {})
+            mappings.setdefault("mode_shift", "none")
+        cfg["version"] = 6
 
     cfg.setdefault("settings", {})
     if "start_at_login" not in cfg["settings"]:

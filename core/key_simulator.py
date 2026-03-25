@@ -8,6 +8,45 @@ import sys
 import threading
 import time
 
+
+# ==================================================================
+# Custom shortcut helpers (shared across platforms)
+# ==================================================================
+
+def custom_action_label(action_id):
+    """Convert 'custom:ctrl+shift+a' → 'Ctrl + Shift + A'."""
+    if not action_id.startswith("custom:"):
+        return action_id
+    parts = action_id[7:].split("+")
+    return " + ".join(p.capitalize() for p in parts)
+
+
+def valid_custom_key_names():
+    """Return the sorted list of valid key names for custom shortcuts."""
+    try:
+        return sorted(_KEY_NAME_TO_CODE.keys())
+    except NameError:
+        return []
+
+
+def _parse_custom_combo(action_id, key_name_to_code):
+    """Parse 'custom:ctrl+a' → list of platform key codes using given mapping."""
+    if not action_id.startswith("custom:"):
+        return None
+    parts = action_id[7:].split("+")
+    codes = []
+    for name in parts:
+        name = name.strip()
+        if not name:
+            continue
+        code = key_name_to_code.get(name.lower())
+        if code is None:
+            print(f"[KeySimulator] Unknown key name: {name}")
+            return None
+        codes.append(code)
+    return codes
+
+
 # ==================================================================
 # Windows implementation
 # ==================================================================
@@ -328,7 +367,32 @@ if sys.platform == "win32":
         },
     }
 
+    _KEY_NAME_TO_CODE = {
+        "ctrl": VK_CONTROL, "shift": VK_SHIFT, "alt": VK_MENU,
+        "super": VK_LWIN, "tab": VK_TAB, "space": VK_SPACE,
+        "enter": VK_RETURN, "esc": VK_ESCAPE, "backspace": VK_BACK,
+        "delete": VK_DELETE, "left": VK_LEFT, "right": VK_RIGHT,
+        "up": VK_UP, "down": VK_DOWN,
+        "a": 0x41, "b": 0x42, "c": 0x43, "d": 0x44, "e": 0x45,
+        "f": 0x46, "g": 0x47, "h": 0x48, "i": 0x49, "j": 0x4A,
+        "k": 0x4B, "l": 0x4C, "m": 0x4D, "n": 0x4E, "o": 0x4F,
+        "p": 0x50, "q": 0x51, "r": 0x52, "s": 0x53, "t": 0x54,
+        "u": 0x55, "v": 0x56, "w": 0x57, "x": 0x58, "y": 0x59,
+        "z": 0x5A,
+        "f1": VK_F1, "f2": VK_F2, "f3": VK_F3, "f4": VK_F4,
+        "f5": VK_F5, "f6": VK_F6, "f7": VK_F7, "f8": VK_F8,
+        "f9": VK_F9, "f10": VK_F10, "f11": VK_F11, "f12": VK_F12,
+        "volumeup": VK_VOLUME_UP, "volumedown": VK_VOLUME_DOWN,
+        "mute": VK_VOLUME_MUTE, "playpause": VK_MEDIA_PLAY_PAUSE,
+        "nexttrack": VK_MEDIA_NEXT_TRACK, "prevtrack": VK_MEDIA_PREV_TRACK,
+    }
+
     def execute_action(action_id):
+        if action_id.startswith("custom:"):
+            keys = _parse_custom_combo(action_id, _KEY_NAME_TO_CODE)
+            if keys:
+                send_key_combo(keys)
+            return
         action = ACTIONS.get(action_id)
         if not action or not action["keys"]:
             return
@@ -733,7 +797,29 @@ elif sys.platform == "darwin":
         },
     }
 
+    _KEY_NAME_TO_CODE = {
+        "ctrl": kVK_Control, "shift": kVK_Shift, "alt": kVK_Option,
+        "super": kVK_Command, "tab": kVK_Tab, "space": kVK_Space,
+        "enter": kVK_Return, "esc": kVK_Escape, "backspace": kVK_Delete,
+        "delete": kVK_ForwardDelete, "left": kVK_LeftArrow,
+        "right": kVK_RightArrow, "up": kVK_UpArrow, "down": kVK_DownArrow,
+        "a": 0x00, "b": 0x0B, "c": 0x08, "d": 0x02, "e": 0x0E,
+        "f": 0x03, "g": 0x05, "h": 0x04, "i": 0x22, "j": 0x26,
+        "k": 0x28, "l": 0x25, "m": 0x2E, "n": 0x2D, "o": 0x1F,
+        "p": 0x23, "q": 0x0C, "r": 0x0F, "s": 0x01, "t": 0x11,
+        "u": 0x20, "v": 0x09, "w": 0x0D,
+        "x": 0x07, "y": 0x10, "z": 0x06,
+        "f1": kVK_F1, "f2": kVK_F2, "f3": kVK_F3, "f4": kVK_F4,
+        "f5": kVK_F5, "f6": kVK_F6, "f7": kVK_F7, "f8": kVK_F8,
+        "f9": kVK_F9, "f10": kVK_F10, "f11": kVK_F11, "f12": kVK_F12,
+    }
+
     def execute_action(action_id):
+        if action_id.startswith("custom:"):
+            keys = _parse_custom_combo(action_id, _KEY_NAME_TO_CODE)
+            if keys:
+                send_key_combo(keys)
+            return
         action = ACTIONS.get(action_id)
         if not action:
             return
@@ -767,16 +853,11 @@ elif sys.platform == "linux":
     KEY_DOWN = 108
     KEY_PAGEUP = 104
     KEY_PAGEDOWN = 109
-    KEY_A = 30
-    KEY_C = 46
-    KEY_D = 32
-    KEY_F = 33
-    KEY_N = 49
-    KEY_S = 31
-    KEY_T = 20
-    KEY_V = 47
-    KEY_W = 17
-    KEY_X = 45
+    KEY_A = 30; KEY_B = 48; KEY_C = 46; KEY_D = 32; KEY_E = 18
+    KEY_F = 33; KEY_G = 34; KEY_H = 35; KEY_I = 23; KEY_J = 36
+    KEY_K = 37; KEY_L = 38; KEY_M = 50; KEY_N = 49; KEY_O = 24
+    KEY_P = 25; KEY_Q = 16; KEY_R = 19; KEY_S = 31; KEY_T = 20
+    KEY_U = 22; KEY_V = 47; KEY_W = 17; KEY_X = 45; KEY_Y = 21
     KEY_Z = 44
     KEY_BACK = 158
     KEY_FORWARD = 159
@@ -803,7 +884,9 @@ elif sys.platform == "linux":
         KEY_LEFTALT, KEY_LEFTSHIFT, KEY_LEFTCTRL, KEY_LEFTMETA,
         KEY_TAB, KEY_SPACE, KEY_ENTER, KEY_BACKSPACE, KEY_DELETE, KEY_ESC,
         KEY_LEFT, KEY_UP, KEY_RIGHT, KEY_DOWN, KEY_PAGEUP, KEY_PAGEDOWN,
-        KEY_A, KEY_C, KEY_D, KEY_F, KEY_N, KEY_S, KEY_T, KEY_V, KEY_W, KEY_X, KEY_Z,
+        KEY_A, KEY_B, KEY_C, KEY_D, KEY_E, KEY_F, KEY_G, KEY_H, KEY_I,
+        KEY_J, KEY_K, KEY_L, KEY_M, KEY_N, KEY_O, KEY_P, KEY_Q, KEY_R,
+        KEY_S, KEY_T, KEY_U, KEY_V, KEY_W, KEY_X, KEY_Y, KEY_Z,
         KEY_BACK, KEY_FORWARD,
         KEY_VOLUMEUP, KEY_VOLUMEDOWN, KEY_MUTE,
         KEY_PLAYPAUSE, KEY_NEXTSONG, KEY_PREVIOUSSONG,
@@ -1012,7 +1095,32 @@ elif sys.platform == "linux":
         },
     }
 
+    _KEY_NAME_TO_CODE = {
+        "ctrl": KEY_LEFTCTRL, "shift": KEY_LEFTSHIFT, "alt": KEY_LEFTALT,
+        "super": KEY_LEFTMETA, "tab": KEY_TAB, "space": KEY_SPACE,
+        "enter": KEY_ENTER, "esc": KEY_ESC, "backspace": KEY_BACKSPACE,
+        "delete": KEY_DELETE, "left": KEY_LEFT, "right": KEY_RIGHT,
+        "up": KEY_UP, "down": KEY_DOWN,
+        "a": KEY_A, "b": KEY_B, "c": KEY_C, "d": KEY_D, "e": KEY_E,
+        "f": KEY_F, "g": KEY_G, "h": KEY_H, "i": KEY_I, "j": KEY_J,
+        "k": KEY_K, "l": KEY_L, "m": KEY_M, "n": KEY_N, "o": KEY_O,
+        "p": KEY_P, "q": KEY_Q, "r": KEY_R, "s": KEY_S, "t": KEY_T,
+        "u": KEY_U, "v": KEY_V, "w": KEY_W, "x": KEY_X, "y": KEY_Y,
+        "z": KEY_Z,
+        "f1": KEY_F1, "f2": KEY_F2, "f3": KEY_F3, "f4": KEY_F4,
+        "f5": KEY_F5, "f6": KEY_F6, "f7": KEY_F7, "f8": KEY_F8,
+        "f9": KEY_F9, "f10": KEY_F10, "f11": KEY_F11, "f12": KEY_F12,
+        "volumeup": KEY_VOLUMEUP, "volumedown": KEY_VOLUMEDOWN,
+        "mute": KEY_MUTE, "playpause": KEY_PLAYPAUSE,
+        "nexttrack": KEY_NEXTSONG, "prevtrack": KEY_PREVIOUSSONG,
+    }
+
     def execute_action(action_id):
+        if action_id.startswith("custom:"):
+            keys = _parse_custom_combo(action_id, _KEY_NAME_TO_CODE)
+            if keys:
+                send_key_combo(keys)
+            return
         action = ACTIONS.get(action_id)
         if not action or not action["keys"]:
             return

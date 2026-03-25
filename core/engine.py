@@ -39,6 +39,7 @@ class Engine:
         self._connection_change_cb = None   # UI callback for device status
         self._battery_read_cb = None        # UI callback for battery level
         self._dpi_read_cb = None            # UI callback for current DPI
+        self._smart_shift_read_cb = None   # UI callback for Smart Shift mode
         self._debug_cb = None               # UI callback for debug messages
         self._gesture_event_cb = None       # UI callback for structured gesture events
         self._debug_events_enabled = bool(
@@ -78,6 +79,12 @@ class Engine:
             timeout_ms=settings.get("gesture_timeout_ms", 3000),
             cooldown_ms=settings.get("gesture_cooldown_ms", 500),
         )
+        # Divert mode shift CID only when mapped to an action
+        self.hook.divert_mode_shift = any(
+            pdata.get("mappings", {}).get("mode_shift", "none") != "none"
+            for pdata in self.cfg.get("profiles", {}).values()
+        )
+
         self._emit_mapping_snapshot("Hook mappings refreshed", mappings)
 
         for btn_key, action_id in mappings.items():
@@ -320,6 +327,21 @@ class Engine:
         print("[Engine] No HID++ connection — DPI not applied")
         return False
 
+    def set_smart_shift(self, mode):
+        """Send Smart Shift mode change ('ratchet' or 'freespin')."""
+        self.cfg.setdefault("settings", {})["smart_shift_mode"] = mode
+        save_config(self.cfg)
+        hg = self.hook._hid_gesture
+        if hg:
+            return hg.set_smart_shift(mode)
+        print("[Engine] No HID++ connection — Smart Shift not applied")
+        return False
+
+    @property
+    def smart_shift_supported(self):
+        hg = self.hook._hid_gesture
+        return hg.smart_shift_supported if hg else False
+
     def reload_mappings(self):
         """
         Called by the UI when the user changes a mapping.
@@ -338,25 +360,37 @@ class Engine:
     def start(self):
         self.hook.start()
         self._app_detector.start()
-        # Apply persisted DPI to the device once HID++ is ready
-        def _apply_saved_dpi():
+        # Apply persisted DPI and Smart Shift to the device once HID++ is ready
+        def _apply_saved_settings():
             import time
             time.sleep(3)  # give HID++ time to connect
             hg = self.hook._hid_gesture
             if hg:
-                saved = self.cfg.get("settings", {}).get("dpi")
-                if saved:
-                    hg.set_dpi(saved)
+                saved_dpi = self.cfg.get("settings", {}).get("dpi")
+                if saved_dpi:
+                    hg.set_dpi(saved_dpi)
                     if self._dpi_read_cb:
                         try:
-                            self._dpi_read_cb(saved)
+                            self._dpi_read_cb(saved_dpi)
                         except Exception:
                             pass
-        threading.Thread(target=_apply_saved_dpi, daemon=True).start()
+                saved_ss = self.cfg.get("settings", {}).get("smart_shift_mode")
+                if saved_ss and hg.smart_shift_supported:
+                    hg.set_smart_shift(saved_ss)
+                    if self._smart_shift_read_cb:
+                        try:
+                            self._smart_shift_read_cb(saved_ss)
+                        except Exception:
+                            pass
+        threading.Thread(target=_apply_saved_settings, daemon=True).start()
 
     def set_dpi_read_callback(self, cb):
         """Register a callback ``cb(dpi_value)`` invoked when DPI is read from device."""
         self._dpi_read_cb = cb
+
+    def set_smart_shift_read_callback(self, cb):
+        """Register a callback ``cb(mode)`` invoked when Smart Shift is read."""
+        self._smart_shift_read_cb = cb
 
     def stop(self):
         self._battery_poll_stop.set()

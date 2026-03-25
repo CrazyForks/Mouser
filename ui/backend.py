@@ -20,10 +20,12 @@ from core.config import (
 from core import app_catalog
 from core.device_layouts import get_device_layout, get_manual_layout_choices
 from core.logi_devices import DEFAULT_DPI_MAX, DEFAULT_DPI_MIN, clamp_dpi
-from core.key_simulator import ACTIONS
+from core.key_simulator import ACTIONS, custom_action_label, valid_custom_key_names
 
 
 def _action_label(action_id):
+    if action_id.startswith("custom:"):
+        return custom_action_label(action_id)
     return ACTIONS.get(action_id, {}).get("label", "Do Nothing")
 
 
@@ -37,6 +39,7 @@ class Backend(QObject):
     activeProfileChanged = Signal()
     statusMessage = Signal(str)
     dpiFromDevice = Signal(int)
+    smartShiftChanged = Signal()
     mouseConnectedChanged = Signal()
     batteryLevelChanged = Signal()
     debugLogChanged = Signal()
@@ -174,7 +177,11 @@ class Backend(QObject):
             data = ACTIONS[aid]
             cat = data["category"]
             cats.setdefault(cat, []).append({"id": aid, "label": data["label"]})
-        return [{"category": c, "actions": a} for c, a in cats.items()]
+        result = [{"category": c, "actions": a} for c, a in cats.items()]
+        result.append({"category": "Custom", "actions": [
+            {"id": "__custom__", "label": "Custom Shortcut\u2026"}
+        ]})
+        return result
 
     @Property(list, constant=True)
     def allActions(self):
@@ -193,11 +200,26 @@ class Backend(QObject):
             data = ACTIONS[aid]
             result.append({"id": aid, "label": data["label"],
                            "category": data["category"]})
+        result.append({"id": "__custom__", "label": "Custom Shortcut\u2026",
+                        "category": "Custom"})
         return result
+
+    @Property(list, constant=True)
+    def validKeyNames(self):
+        """List of valid key names for custom shortcuts."""
+        return valid_custom_key_names()
 
     @Property(int, notify=settingsChanged)
     def dpi(self):
         return self._cfg.get("settings", {}).get("dpi", 1000)
+
+    @Property(str, notify=smartShiftChanged)
+    def smartShiftMode(self):
+        return self._cfg.get("settings", {}).get("smart_shift_mode", "ratchet")
+
+    @Property(bool, notify=mouseConnectedChanged)
+    def smartShiftSupported(self):
+        return self._engine.smart_shift_supported if self._engine else False
 
     @Property(bool, notify=settingsChanged)
     def startMinimized(self):
@@ -501,6 +523,14 @@ class Backend(QObject):
         if self._engine:
             self._engine.set_dpi(dpi)
         self.settingsChanged.emit()
+
+    @Slot(str)
+    def setSmartShift(self, mode):
+        self._cfg.setdefault("settings", {})["smart_shift_mode"] = mode
+        save_config(self._cfg)
+        if self._engine:
+            self._engine.set_smart_shift(mode)
+        self.smartShiftChanged.emit()
 
     @Slot(bool)
     def setInvertVScroll(self, value):

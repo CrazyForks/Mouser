@@ -473,6 +473,7 @@ BT_DEV_IDX     = 0xFF        # device-index for direct Bluetooth
 FEAT_IROOT     = 0x0000
 FEAT_REPROG_V4 = 0x1B04      # Reprogrammable Controls V4
 FEAT_ADJ_DPI   = 0x2201      # Adjustable DPI
+FEAT_SMART_SHIFT = 0x2110    # Smart Shift (scroll wheel mode)
 FEAT_UNIFIED_BATT   = 0x1004      # Unified Battery (preferred)
 FEAT_BATTERY_STATUS = 0x1000      # Battery Status (fallback)
 DEFAULT_GESTURE_CID = DEFAULT_GESTURE_CIDS[0]
@@ -568,12 +569,16 @@ class HidGestureListener:
     """Background thread: diverts the gesture button and listens via HID++."""
 
     def __init__(self, on_down=None, on_up=None, on_move=None,
-                 on_connect=None, on_disconnect=None):
+                 on_connect=None, on_disconnect=None, extra_diverts=None):
         self._on_down       = on_down
         self._on_up         = on_up
         self._on_move       = on_move
         self._on_connect    = on_connect
         self._on_disconnect = on_disconnect
+        self._extra_diverts = {
+            cid: {**info, "held": False}
+            for cid, info in (extra_diverts or {}).items()
+        }
         self._dev       = None          # hid.device()
         self._thread    = None
         self._running   = False
@@ -589,6 +594,9 @@ class HidGestureListener:
         self._rawxy_enabled = False
         self._pending_dpi = None        # set by set_dpi(), applied in loop
         self._dpi_result  = None        # True/False after apply
+        self._smart_shift_idx = None    # feature index of SMART_SHIFT
+        self._pending_smart_shift = None
+        self._smart_shift_result = None
         self._pending_battery = None
         self._battery_result = None
         self._last_logged_battery = None
@@ -885,10 +893,30 @@ class HidGestureListener:
         self._gesture_cid = DEFAULT_GESTURE_CID
         return False
 
+    def _divert_extras(self):
+        """Divert additional CIDs (e.g. mode shift) without raw XY."""
+        if self._feat_idx is None:
+            return
+        for cid, info in self._extra_diverts.items():
+            resp = self._set_cid_reporting(cid, 0x03)
+            ok = resp is not None
+            print(f"[HidGesture] Extra divert {_format_cid(cid)}: "
+                  f"{'OK' if ok else 'FAILED'}")
+
     def _undivert(self):
         """Restore default button behaviour (best-effort)."""
         if self._feat_idx is None or self._dev is None:
             return
+        # Undivert extra CIDs
+        for cid in self._extra_diverts:
+            hi = (cid >> 8) & 0xFF
+            lo = cid & 0xFF
+            try:
+                self._tx(LONG_ID, self._feat_idx, 3,
+                         [hi, lo, 0x02, 0x00, 0x00])
+            except Exception:
+                pass
+        # Undivert gesture CID
         hi = (self._gesture_cid >> 8) & 0xFF
         lo = self._gesture_cid & 0xFF
         flags = 0x22 if self._rawxy_enabled else 0x02
@@ -969,6 +997,81 @@ class HidGestureListener:
             print("[HidGesture] DPI read FAILED")
             self._dpi_result = None
         self._pending_dpi = None
+
+    # ── Smart Shift control ─────────────────────────────────────
+
+    SMART_SHIFT_FREESPIN = 0x01
+    SMART_SHIFT_RATCHET  = 0x02
+
+    @property
+    def smart_shift_supported(self):
+        return self._smart_shift_idx is not None
+
+    def set_smart_shift(self, mode):
+        """Queue a Smart Shift mode change. mode: 'ratchet' or 'freespin'.
+        Can be called from any thread.  Returns True on success."""
+        self._smart_shift_result = None
+        self._pending_smart_shift = mode
+        for _ in range(30):
+            if self._pending_smart_shift is None:
+                return self._smart_shift_result is True
+            time.sleep(0.1)
+        print("[HidGesture] Smart Shift set timed out")
+        return False
+
+    def _apply_pending_smart_shift(self):
+        mode = self._pending_smart_shift
+        if mode is None:
+            return
+        if self._smart_shift_idx is None or self._dev is None:
+            print("[HidGesture] Cannot set Smart Shift — not connected")
+            self._smart_shift_result = False
+            self._pending_smart_shift = None
+            return
+        if mode == "read":
+            self._apply_pending_read_smart_shift()
+            return
+        mode_byte = (self.SMART_SHIFT_FREESPIN if mode == "freespin"
+                     else self.SMART_SHIFT_RATCHET)
+        # setRatchetControlMode: function 1, params [mode, autoDisengage, 0]
+        resp = self._request(self._smart_shift_idx, 1,
+                             [mode_byte, 0x00, 0x00])
+        if resp:
+            print(f"[HidGesture] Smart Shift set to {mode}")
+            self._smart_shift_result = True
+        else:
+            print("[HidGesture] Smart Shift set FAILED")
+            self._smart_shift_result = False
+        self._pending_smart_shift = None
+
+    def read_smart_shift(self):
+        """Queue a Smart Shift read. Returns 'ratchet', 'freespin', or None."""
+        self._smart_shift_result = None
+        self._pending_smart_shift = "read"
+        for _ in range(30):
+            if self._pending_smart_shift is None:
+                return self._smart_shift_result
+            time.sleep(0.1)
+        print("[HidGesture] Smart Shift read timed out")
+        return None
+
+    def _apply_pending_read_smart_shift(self):
+        if self._smart_shift_idx is None or self._dev is None:
+            self._smart_shift_result = None
+            self._pending_smart_shift = None
+            return
+        # getRatchetControlMode: function 0
+        resp = self._request(self._smart_shift_idx, 0, [])
+        if resp:
+            _, _, _, _, p = resp
+            mode_byte = p[0] if p else 0
+            mode = "freespin" if mode_byte == self.SMART_SHIFT_FREESPIN else "ratchet"
+            print(f"[HidGesture] Smart Shift mode = {mode}")
+            self._smart_shift_result = mode
+        else:
+            print("[HidGesture] Smart Shift read FAILED")
+            self._smart_shift_result = None
+        self._pending_smart_shift = None
 
     def read_battery(self):
         """Queue a battery read and wait for the listener thread result."""
@@ -1085,6 +1188,28 @@ class HidGestureListener:
                 except Exception as e:
                     print(f"[HidGesture] up callback error: {e}")
 
+        # Check extra diverted CIDs (e.g. mode shift)
+        for cid, info in self._extra_diverts.items():
+            btn_now = cid in cids
+            if btn_now and not info["held"]:
+                info["held"] = True
+                print(f"[HidGesture] Extra {_format_cid(cid)} DOWN")
+                cb = info.get("on_down")
+                if cb:
+                    try:
+                        cb()
+                    except Exception as e:
+                        print(f"[HidGesture] extra down callback error: {e}")
+            elif not btn_now and info["held"]:
+                info["held"] = False
+                print(f"[HidGesture] Extra {_format_cid(cid)} UP")
+                cb = info.get("on_up")
+                if cb:
+                    try:
+                        cb()
+                    except Exception as e:
+                        print(f"[HidGesture] extra up callback error: {e}")
+
     # ── connect / main loop ───────────────────────────────────────
 
     def _try_connect(self):
@@ -1115,6 +1240,7 @@ class HidGestureListener:
             device_spec = resolve_device(product_id=pid, product_name=product)
             self._feat_idx = None
             self._dpi_idx = None
+            self._smart_shift_idx = None
             self._battery_idx = None
             self._battery_feature_id = None
             self._gesture_cid = DEFAULT_GESTURE_CID
@@ -1186,11 +1312,15 @@ class HidGestureListener:
                     )
                     print("[HidGesture] Gesture CID candidates: "
                           + ", ".join(_format_cid(cid) for cid in self._gesture_candidates))
-                    # Also discover ADJUSTABLE_DPI
+                    # Also discover ADJUSTABLE_DPI and SMART_SHIFT
                     dpi_fi = self._find_feature(FEAT_ADJ_DPI)
                     if dpi_fi:
                         self._dpi_idx = dpi_fi
                         print(f"[HidGesture] Found ADJUSTABLE_DPI @0x{dpi_fi:02X}")
+                    ss_fi = self._find_feature(FEAT_SMART_SHIFT)
+                    if ss_fi:
+                        self._smart_shift_idx = ss_fi
+                        print(f"[HidGesture] Found SMART_SHIFT @0x{ss_fi:02X}")
                     batt_fi = self._find_feature(FEAT_UNIFIED_BATT)
                     if batt_fi:
                         self._battery_idx = batt_fi
@@ -1203,6 +1333,7 @@ class HidGestureListener:
                             self._battery_feature_id = FEAT_BATTERY_STATUS
                             print(f"[HidGesture] Found BATTERY_STATUS @0x{batt_fi:02X}")
                     if self._divert():
+                        self._divert_extras()
                         self._connected_device_info = build_connected_device_info(
                             product_id=pid,
                             product_name=product,
@@ -1252,6 +1383,8 @@ class HidGestureListener:
                             self._apply_pending_read_dpi()
                         else:
                             self._apply_pending_dpi()
+                    if self._pending_smart_shift is not None:
+                        self._apply_pending_smart_shift()
                     if self._pending_battery is not None:
                         self._apply_pending_read_battery()
                     raw = self._rx(1000)
@@ -1270,6 +1403,7 @@ class HidGestureListener:
             self._dev = None
             self._feat_idx = None
             self._dpi_idx = None
+            self._smart_shift_idx = None
             self._battery_idx = None
             self._battery_feature_id = None
             self._pending_battery = None

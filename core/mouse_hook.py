@@ -37,6 +37,8 @@ class MouseEvent:
     GESTURE_SWIPE_DOWN = "gesture_swipe_down"
     HSCROLL_LEFT = "hscroll_left"
     HSCROLL_RIGHT = "hscroll_right"
+    MODE_SHIFT_DOWN = "mode_shift_down"
+    MODE_SHIFT_UP = "mode_shift_up"
 
     def __init__(self, event_type, raw_data=None):
         self.event_type = event_type
@@ -244,6 +246,7 @@ if sys.platform == "win32":
             self._ri_wndproc_ref = None
             self._ri_hwnd = None
             self._device_name_cache = {}
+            self.divert_mode_shift = False
             self._gesture_active = False
             self._prev_raw_buttons = {}
             self._hid_gesture = None
@@ -833,6 +836,14 @@ if sys.platform == "win32":
                 if should_click:
                     self._dispatch(MouseEvent(MouseEvent.GESTURE_CLICK))
 
+        def _on_hid_mode_shift_down(self):
+            self._emit_debug("HID mode shift button down")
+            self._dispatch(MouseEvent(MouseEvent.MODE_SHIFT_DOWN))
+
+        def _on_hid_mode_shift_up(self):
+            self._emit_debug("HID mode shift button up")
+            self._dispatch(MouseEvent(MouseEvent.MODE_SHIFT_UP))
+
         def _on_hid_gesture_move(self, delta_x, delta_y):
             self._emit_debug(
                 f"HID rawxy move dx={delta_x} dy={delta_y}"
@@ -869,12 +880,19 @@ if sys.platform == "win32":
             if not self._startup_ok:
                 return False
             if HidGestureListener is not None:
+                extra = {}
+                if self.divert_mode_shift:
+                    extra[0x00C4] = {
+                        "on_down": self._on_hid_mode_shift_down,
+                        "on_up": self._on_hid_mode_shift_up,
+                    }
                 listener = HidGestureListener(
                     on_down=self._on_hid_gesture_down,
                     on_up=self._on_hid_gesture_up,
                     on_move=self._on_hid_gesture_move,
                     on_connect=self._on_hid_connect,
                     on_disconnect=self._on_hid_disconnect,
+                    extra_diverts=extra,
                 )
                 self._hid_gesture = listener
                 if not listener.start():
@@ -942,6 +960,7 @@ elif sys.platform == "darwin":
             self._first_event_logged = False
             self._device_connected = False
             self._connection_change_cb = None
+            self.divert_mode_shift = False
             self._gesture_direction_enabled = False
             self._gesture_threshold = 50.0
             self._gesture_deadzone = 40.0
@@ -1425,6 +1444,14 @@ elif sys.platform == "darwin":
                 if should_click:
                     self._dispatch(MouseEvent(MouseEvent.GESTURE_CLICK))
 
+        def _on_hid_mode_shift_down(self):
+            self._emit_debug("HID mode shift button down")
+            self._dispatch(MouseEvent(MouseEvent.MODE_SHIFT_DOWN))
+
+        def _on_hid_mode_shift_up(self):
+            self._emit_debug("HID mode shift button up")
+            self._dispatch(MouseEvent(MouseEvent.MODE_SHIFT_UP))
+
         def _on_hid_gesture_move(self, delta_x, delta_y):
             self._emit_debug(
                 f"HID rawxy move dx={delta_x} dy={delta_y}"
@@ -1494,12 +1521,19 @@ elif sys.platform == "darwin":
             self._dispatch_thread.start()
 
             if HidGestureListener is not None:
+                extra = {}
+                if self.divert_mode_shift:
+                    extra[0x00C4] = {
+                        "on_down": self._on_hid_mode_shift_down,
+                        "on_up": self._on_hid_mode_shift_up,
+                    }
                 listener = HidGestureListener(
                     on_down=self._on_hid_gesture_down,
                     on_up=self._on_hid_gesture_up,
                     on_move=self._on_hid_gesture_move,
                     on_connect=self._on_hid_connect,
                     on_disconnect=self._on_hid_disconnect,
+                    extra_diverts=extra,
                 )
                 self._hid_gesture = listener
                 if not listener.start():
@@ -1569,6 +1603,7 @@ elif sys.platform == "linux":
             self._device_connected = False
             self._connection_change_cb = None
             self._connected_device = None
+            self.divert_mode_shift = False
             self._gesture_direction_enabled = False
             self._gesture_threshold = 50.0
             self._gesture_deadzone = 40.0
@@ -1875,6 +1910,14 @@ elif sys.platform == "linux":
             if dispatch_click:
                 self._dispatch(MouseEvent(MouseEvent.GESTURE_CLICK))
 
+        def _on_hid_mode_shift_down(self):
+            self._emit_debug("HID mode shift button down")
+            self._dispatch(MouseEvent(MouseEvent.MODE_SHIFT_DOWN))
+
+        def _on_hid_mode_shift_up(self):
+            self._emit_debug("HID mode shift button up")
+            self._dispatch(MouseEvent(MouseEvent.MODE_SHIFT_UP))
+
         def _on_hid_gesture_move(self, delta_x, delta_y):
             self._emit_debug(
                 f"HID rawxy move dx={delta_x} dy={delta_y}"
@@ -2151,12 +2194,19 @@ elif sys.platform == "linux":
 
             # Start HID gesture listener (works even without evdev)
             if HidGestureListener is not None:
+                extra = {}
+                if self.divert_mode_shift:
+                    extra[0x00C4] = {
+                        "on_down": self._on_hid_mode_shift_down,
+                        "on_up": self._on_hid_mode_shift_up,
+                    }
                 listener = HidGestureListener(
                     on_down=self._on_hid_gesture_down,
                     on_up=self._on_hid_gesture_up,
                     on_move=self._on_hid_gesture_move,
                     on_connect=self._on_hid_connect,
                     on_disconnect=self._on_hid_disconnect,
+                    extra_diverts=extra,
                 )
                 self._hid_gesture = listener
                 if not listener.start():
@@ -2205,6 +2255,7 @@ else:
             self._connection_change_cb = None
             self._gesture_callback = None
             self._connected_device = None
+            self.divert_mode_shift = False
             print(f"[MouseHook] Platform \'{sys.platform}\' not supported")
 
         def register(self, event_type, callback): pass

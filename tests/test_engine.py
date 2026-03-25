@@ -144,6 +144,7 @@ class EngineHorizontalScrollTests(unittest.TestCase):
         engine.hook._hid_gesture = SimpleNamespace(
             set_dpi=Mock(return_value=True),
             read_dpi=Mock(),
+            smart_shift_supported=False,
         )
         seen = []
         engine.set_dpi_read_callback(seen.append)

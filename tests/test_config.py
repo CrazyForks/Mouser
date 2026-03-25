@@ -31,7 +31,7 @@ class ConfigMigrationTests(unittest.TestCase):
 
         migrated = config._migrate(legacy)
 
-        self.assertEqual(migrated["version"], 5)
+        self.assertEqual(migrated["version"], 6)
         self.assertEqual(migrated["profiles"]["default"]["apps"], [])
         self.assertFalse(migrated["settings"]["start_at_login"])
         self.assertFalse(migrated["settings"]["invert_hscroll"])
@@ -51,6 +51,9 @@ class ConfigMigrationTests(unittest.TestCase):
             self.assertEqual(
                 migrated["profiles"]["default"]["mappings"][key], "none"
             )
+        self.assertEqual(
+            migrated["profiles"]["default"]["mappings"]["mode_shift"], "none"
+        )
 
     def test_migrate_updates_media_player_profile_apps(self):
         cfg = {
@@ -126,8 +129,11 @@ class ConfigMigrationTests(unittest.TestCase):
 
         migrated = config._migrate(legacy)
 
-        self.assertEqual(migrated["version"], 5)
+        self.assertEqual(migrated["version"], 6)
         self.assertTrue(migrated["settings"]["start_at_login"])
+        self.assertEqual(
+            migrated["profiles"]["default"]["mappings"]["mode_shift"], "none"
+        )
 
     def test_get_profile_for_app_matches_aliases(self):
         cfg = {
