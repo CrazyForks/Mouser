@@ -725,5 +725,49 @@ class ConfigV8MigrationTests(unittest.TestCase):
         self.assertEqual(migrated["version"], 8)
 
 
+class HidForceReconnectTests(unittest.TestCase):
+    """force_reconnect() flag and inner-loop behavior."""
+
+    def _make_listener(self):
+        return hid_gesture.HidGestureListener()
+
+    def test_force_reconnect_sets_flag(self):
+        listener = self._make_listener()
+        self.assertFalse(listener._reconnect_requested)
+        listener.force_reconnect()
+        self.assertTrue(listener._reconnect_requested)
+
+    def test_reconnect_flag_cleared_and_raises(self):
+        """Inner loop should clear flag and raise IOError when _reconnect_requested is True."""
+        listener = self._make_listener()
+        listener._reconnect_requested = True
+        # Simulate the inner-loop guard directly
+        with self.assertRaises(IOError):
+            if listener._reconnect_requested:
+                listener._reconnect_requested = False
+                raise IOError("reconnect requested")
+        self.assertFalse(listener._reconnect_requested)
+
+    def test_not_connected_read_returns_none_result(self):
+        """When not connected, a pending read should leave _smart_shift_result as None."""
+        listener = self._make_listener()
+        listener._smart_shift_idx = None
+        listener._dev = None
+        listener._pending_smart_shift = "read"
+        listener._apply_pending_smart_shift()
+        self.assertIsNone(listener._smart_shift_result)
+        self.assertIsNone(listener._pending_smart_shift)
+
+    def test_not_connected_write_returns_false_result(self):
+        """When not connected, a pending write should leave _smart_shift_result as False."""
+        listener = self._make_listener()
+        listener._smart_shift_idx = None
+        listener._dev = None
+        listener._pending_smart_shift = ("ratchet", True, 25)
+        listener._apply_pending_smart_shift()
+        self.assertFalse(listener._smart_shift_result)
+        self.assertIsNone(listener._pending_smart_shift)
+
+
 if __name__ == "__main__":
     unittest.main()

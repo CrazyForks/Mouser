@@ -599,6 +599,7 @@ class HidGestureListener:
         self._smart_shift_enhanced = False  # True → use fn 1/2; False → fn 0/1
         self._pending_smart_shift = None
         self._smart_shift_result = None
+        self._reconnect_requested = False
         self._pending_battery = None
         self._battery_result = None
         self._last_logged_battery = None
@@ -1035,7 +1036,7 @@ class HidGestureListener:
             return
         if self._smart_shift_idx is None or self._dev is None:
             print("[HidGesture] Cannot set Smart Shift — not connected")
-            self._smart_shift_result = False
+            self._smart_shift_result = None if pending == "read" else False
             self._pending_smart_shift = None
             return
         if pending == "read":
@@ -1071,6 +1072,15 @@ class HidGestureListener:
             print("[HidGesture] Smart Shift set FAILED")
             self._smart_shift_result = False
         self._pending_smart_shift = None
+
+    def force_reconnect(self):
+        """Request the listener thread to drop and re-establish the HID++ connection.
+
+        Thread-safe: sets a flag checked at the top of the inner event loop.
+        The loop raises IOError, which triggers full cleanup + _try_connect(),
+        re-applying all button diverts (including CID 0x00C4).
+        """
+        self._reconnect_requested = True
 
     def read_smart_shift(self):
         """Queue a Smart Shift read.
@@ -1429,6 +1439,9 @@ class HidGestureListener:
             print("[HidGesture] Listening for gesture events…")
             try:
                 while self._running:
+                    if self._reconnect_requested:
+                        self._reconnect_requested = False
+                        raise IOError("reconnect requested")
                     # Apply any queued DPI command
                     if self._pending_dpi is not None:
                         if self._pending_dpi == "read":
@@ -1465,6 +1478,7 @@ class HidGestureListener:
             self._gesture_candidates = list(DEFAULT_GESTURE_CIDS)
             self._rawxy_enabled = False
             self._connected_device_info = None
+            self._reconnect_requested = False
             if self._connected:
                 self._connected = False
                 if self._on_disconnect:

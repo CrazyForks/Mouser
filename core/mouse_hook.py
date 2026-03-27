@@ -955,6 +955,9 @@ elif sys.platform == "darwin":
             self.invert_hscroll = False
             self._gesture_active = False
             self._hid_gesture = None
+            self._wake_observer = None
+            self._session_resign_observer = None
+            self._session_activate_observer = None
             self._dispatch_queue = queue.Queue()
             self._dispatch_thread = None
             self._first_event_logged = False
@@ -1474,6 +1477,57 @@ elif sys.platform == "darwin":
             self._connected_device = None
             self._set_device_connected(False)
 
+        def _register_wake_observer(self):
+            """Register NSWorkspace observers for wake and fast-user-switch events.
+
+            On wake or session-activate: re-enable the CGEventTap and request a
+            full HID++ reconnect so button diverts (including CID 0x00C4) are
+            re-applied after the device soft-resets.
+            """
+            try:
+                from AppKit import NSWorkspace
+            except ImportError:
+                return
+            nc = NSWorkspace.sharedWorkspace().notificationCenter()
+            hg = self._hid_gesture
+
+            def _re_enable_tap_and_reconnect(reason):
+                if self._tap and self._running:
+                    Quartz.CGEventTapEnable(self._tap, True)
+                    ok = Quartz.CGEventTapIsEnabled(self._tap)
+                    print(f"[MouseHook] Event tap re-enabled ({reason}): "
+                          f"{'OK' if ok else 'FAILED — may need restart'}", flush=True)
+                if hg:
+                    hg.force_reconnect()
+
+            def _on_wake(n):
+                _re_enable_tap_and_reconnect("wake")
+
+            def _on_session_resign(n):
+                print("[MouseHook] Session deactivated", flush=True)
+
+            def _on_session_activate(n):
+                _re_enable_tap_and_reconnect("user-switch")
+
+            self._wake_observer = nc.addObserverForName_object_queue_usingBlock_(
+                "NSWorkspaceDidWakeNotification", None, None, _on_wake)
+            self._session_resign_observer = nc.addObserverForName_object_queue_usingBlock_(
+                "NSWorkspaceSessionDidResignActiveNotification", None, None, _on_session_resign)
+            self._session_activate_observer = nc.addObserverForName_object_queue_usingBlock_(
+                "NSWorkspaceSessionDidBecomeActiveNotification", None, None, _on_session_activate)
+
+        def _unregister_wake_observer(self):
+            try:
+                from AppKit import NSWorkspace
+                nc = NSWorkspace.sharedWorkspace().notificationCenter()
+                for attr in ("_wake_observer", "_session_resign_observer", "_session_activate_observer"):
+                    obs = getattr(self, attr, None)
+                    if obs is not None:
+                        nc.removeObserver_(obs)
+                        setattr(self, attr, None)
+            except Exception:
+                pass
+
         def start(self):
             if not _QUARTZ_OK:
                 print("[MouseHook] Quartz not available — hook not installed")
@@ -1538,9 +1592,11 @@ elif sys.platform == "darwin":
                 self._hid_gesture = listener
                 if not listener.start():
                     self._hid_gesture = None
+            self._register_wake_observer()
             return True
 
         def stop(self):
+            self._unregister_wake_observer()
             self._running = False
             if self._hid_gesture:
                 self._hid_gesture.stop()
