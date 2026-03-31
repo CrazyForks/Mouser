@@ -604,6 +604,7 @@ class HidGestureListener:
         self._battery_result = None
         self._last_logged_battery = None
         self._connected_device_info = None
+        self._consecutive_request_timeouts = 0
 
     # ── public API ────────────────────────────────────────────────
 
@@ -737,12 +738,15 @@ class HidGestureListener:
 
             expected_funcs = {func, (func + 1) & 0x0F}
             if r_feat == feat and r_sw == MY_SW and r_func in expected_funcs:
+                self._consecutive_request_timeouts = 0
                 return msg
             # Forward non-matching reports (e.g. diverted button events) so
             # button held-state tracking stays in sync during command exchanges.
             self._on_report(raw)
+        self._consecutive_request_timeouts += 1
         print(f"[HidGesture] request timeout feat=0x{feat:02X} func=0x{func:X} "
-              f"devIdx=0x{self._dev_idx:02X} params=[{_hex_bytes(req_params)}]")
+              f"devIdx=0x{self._dev_idx:02X} params=[{_hex_bytes(req_params)}] "
+              f"(consecutive={self._consecutive_request_timeouts})")
         return None
 
     # ── feature helpers ───────────────────────────────────────────
@@ -1471,11 +1475,20 @@ class HidGestureListener:
             print("[HidGesture] Listening for gesture events…")
             _no_data_count = 0          # consecutive _rx() returning None
             _STALE_HOLD_LIMIT = 3       # force-release held buttons after this many empty reads (~3 s)
+            _CONSECUTIVE_TIMEOUT_RECONNECT = 3  # force reconnect after this many request timeouts
+            self._consecutive_request_timeouts = 0
             try:
                 while self._running:
                     if self._reconnect_requested:
                         self._reconnect_requested = False
                         raise IOError("reconnect requested")
+                    # If too many consecutive HID++ requests timed out, the
+                    # device likely went to sleep or power-cycled.  Force a
+                    # full reconnect so button diverts are re-applied.
+                    if self._consecutive_request_timeouts >= _CONSECUTIVE_TIMEOUT_RECONNECT:
+                        print(f"[HidGesture] {self._consecutive_request_timeouts} consecutive "
+                              f"request timeouts — forcing reconnect")
+                        raise IOError("consecutive request timeouts — device likely asleep")
                     # Apply any queued DPI command
                     if self._pending_dpi is not None:
                         if self._pending_dpi == "read":
@@ -1513,7 +1526,10 @@ class HidGestureListener:
             self._battery_idx = None
             self._battery_feature_id = None
             self._pending_battery = None
+            self._pending_dpi = None
+            self._pending_smart_shift = None
             self._last_logged_battery = None
+            self._consecutive_request_timeouts = 0
             if self._held:
                 self._held = False
                 print("[HidGesture] Gesture force-released on disconnect")
