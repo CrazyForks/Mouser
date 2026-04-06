@@ -314,15 +314,27 @@ class EngineSmartShiftTests(unittest.TestCase):
             engine._apply_device_settings("reconnect")
         hg.set_smart_shift.assert_called_with("ratchet", False, 30)
 
-    def test_on_connection_change_spawns_apply_settings_thread(self):
-        """_on_connection_change(True) must start an ApplySettings thread in addition to BatteryPoll."""
+    def test_on_connection_change_spawns_battery_poll_thread(self):
+        """_on_connection_change(True) must start a BatteryPoll thread."""
         engine = self._make_engine()
         with patch("core.engine.threading.Thread") as thread_cls:
             thread_cls.return_value = Mock(start=Mock())
             engine._on_connection_change(True)
         thread_names = [c.kwargs.get("name") for c in thread_cls.call_args_list]
         self.assertIn("BatteryPoll", thread_names)
-        self.assertIn("ApplySettings", thread_names)
+
+    def test_on_connection_change_replays_settings_when_hid_features_become_ready(self):
+        """SavedSettingsReplay thread is started when HID features transition to ready."""
+        engine = self._make_engine()
+        hg = Mock(smart_shift_supported=True)
+        # _last_hid_features_ready is False at init (no _hid_gesture); setting
+        # _hid_gesture here makes hid_features_ready flip to True on next call.
+        engine.hook._hid_gesture = hg
+        with patch("core.engine.threading.Thread") as thread_cls:
+            thread_cls.return_value = Mock(start=Mock())
+            engine._on_connection_change(True)
+        thread_names = [c.kwargs.get("name") for c in thread_cls.call_args_list]
+        self.assertIn("SavedSettingsReplay", thread_names)
 
     def test_apply_device_settings_retries_on_failure(self):
         """On write failure (e.g. IOReturnBadArgument right after wake), retry once."""

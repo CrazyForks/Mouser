@@ -413,9 +413,11 @@ class Engine:
 
         saved_ss = self.cfg.get("settings", {}).get("smart_shift_mode")
         if saved_ss and getattr(hg, "smart_shift_supported", False):
+            ss_enabled = self.cfg.get("settings", {}).get("smart_shift_enabled", False)
+            ss_threshold = self.cfg.get("settings", {}).get("smart_shift_threshold", 25)
             if not hasattr(hg, "set_smart_shift"):
                 replay_ok = False
-            elif hg.set_smart_shift(saved_ss):
+            elif hg.set_smart_shift(saved_ss, ss_enabled, ss_threshold):
                 if self._smart_shift_read_cb:
                     try:
                         self._smart_shift_read_cb(saved_ss)
