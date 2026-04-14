@@ -19,8 +19,8 @@ BUILD_INFO_PATH = os.path.join(ROOT, "build", "mouser_build_info.json")
 
 
 def _load_app_version() -> str:
-    namespace = {}
     version_path = os.path.join(ROOT, "core", "version.py")
+    namespace = {"__file__": version_path}
     with open(version_path, encoding="utf-8") as version_file:
         exec(version_file.read(), namespace)
     return namespace["APP_VERSION"]
