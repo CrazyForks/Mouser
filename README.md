@@ -105,7 +105,10 @@ Action labels adapt by platform. For example, Windows exposes `Win+D` and `Task 
     <img src="https://img.shields.io/github/downloads/TomBadash/Mouser/latest/Mouser-Windows.zip?style=for-the-badge&color=00d4aa&logo=windows&label=Windows&displayAssetName=false" alt="Windows Downloads" />
   </a>
   <a href="https://github.com/TomBadash/Mouser/releases/latest">
-    <img src="https://img.shields.io/github/downloads/TomBadash/Mouser/latest/Mouser-macOS.zip?style=for-the-badge&color=00d4aa&logo=apple&label=macOS&displayAssetName=false" alt="macOS Downloads" />
+    <img src="https://img.shields.io/github/downloads/TomBadash/Mouser/latest/Mouser-macOS.zip?style=for-the-badge&color=00d4aa&logo=apple&label=macOS%20Apple%20Silicon&displayAssetName=false" alt="macOS Apple Silicon Downloads" />
+  </a>
+  <a href="https://github.com/TomBadash/Mouser/releases/latest">
+    <img src="https://img.shields.io/github/downloads/TomBadash/Mouser/latest/Mouser-macOS-intel.zip?style=for-the-badge&color=00d4aa&logo=apple&label=macOS%20Intel&displayAssetName=false" alt="macOS Intel Downloads" />
   </a>
   <a href="https://github.com/TomBadash/Mouser/releases/latest">
     <img src="https://img.shields.io/github/downloads/TomBadash/Mouser/latest/Mouser-Linux.zip?style=for-the-badge&color=00d4aa&logo=linux&label=Linux&displayAssetName=false" alt="Linux Downloads" />
@@ -117,7 +120,7 @@ Action labels adapt by platform. For example, Windows exposes `Win+D` and `Task 
 ### Steps
 
 1. Go to the [**latest release page**](https://github.com/TomBadash/Mouser/releases/latest)
-2. Download the zip for your platform: **Mouser-Windows.zip**, **Mouser-macOS.zip**, or **Mouser-Linux.zip**
+2. Download the zip for your platform: **Mouser-Windows.zip**, **Mouser-macOS.zip** (Apple Silicon), **Mouser-macOS-intel.zip** (Intel macOS), or **Mouser-Linux.zip**
 3. **Extract** the zip to any folder (Desktop, Documents, wherever you like)
 4. **Run** the executable: `Mouser.exe` (Windows), `Mouser.app` (macOS), or `./Mouser` (Linux)
 

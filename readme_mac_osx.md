@@ -6,7 +6,8 @@ Mouser now supports macOS alongside Windows. This document covers macOS-specific
 
 - **macOS 12 (Monterey)** or later recommended
 - **Python 3.11+** (via Homebrew or python.org)
-- **Apple Silicon / M1**: use an `arm64` Python interpreter if you want a native `arm64` app bundle
+- **Apple Silicon / M1+**: use an `arm64` Python interpreter if you want a native Apple Silicon app bundle
+- **Intel Macs**: use an `x86_64` Python interpreter if you want a native Intel app bundle
 - **Accessibility permission** — required for CGEventTap to intercept mouse events
 
 ### Python Dependencies
@@ -87,10 +88,12 @@ dist/Mouser.app
 
 Notes:
 
-- Build on the target architecture. On an M1/M2/M3 Mac, use an `arm64` Python to produce an Apple Silicon app.
+- Build on the target architecture. On an M1/M2/M3 Mac, use an `arm64` Python to produce an Apple Silicon app; on an Intel Mac, use an `x86_64` Python to produce an Intel app.
+- You can also set `PYINSTALLER_TARGET_ARCH=arm64` or `PYINSTALLER_TARGET_ARCH=x86_64` before running `./build_macos_app.sh` when your macOS Python environment supports that target.
 - The build flow uses the committed `images/AppIcon.icns` when present; otherwise the script generates an `.icns` icon from `images/logo_icon.png`, runs PyInstaller with `Mouser-mac.spec`, and applies ad-hoc signing via `codesign --sign -`.
 - The app can then be moved to `/Applications/Mouser.app` and launched directly from Finder, Spotlight, or Dock.
 - `pyinstaller Mouser.spec` remains available as a simpler cross-platform build path, but the dedicated macOS script is the preferred bundle flow.
+- Release builds publish `Mouser-macOS.zip` for Apple Silicon and `Mouser-macOS-intel.zip` for Intel Macs.
 
 The packaged app runs as an `LSUIElement`, so it lives in the menu bar instead of showing a Dock icon.
 

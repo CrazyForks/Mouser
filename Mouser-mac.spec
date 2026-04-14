@@ -2,7 +2,10 @@
 """
 PyInstaller spec for building a native macOS app bundle.
 
-Run from Apple Silicon Python on macOS:
+Run on macOS with a Python interpreter that matches the target architecture,
+or set `PYINSTALLER_TARGET_ARCH` via `build_macos_app.sh` to request an
+explicit `arm64`, `x86_64`, or `universal2` build when your Python
+environment supports it:
     python3 -m PyInstaller Mouser-mac.spec --noconfirm
 """
 
@@ -11,6 +14,11 @@ import os
 ROOT = os.path.abspath(".")
 COMMITTED_ICON = os.path.join(ROOT, "images", "AppIcon.icns")
 GENERATED_ICON = os.path.join(ROOT, "build", "macos", "Mouser.icns")
+TARGET_ARCH = os.environ.get("PYINSTALLER_TARGET_ARCH", "").strip() or None
+if TARGET_ARCH not in (None, "arm64", "x86_64", "universal2"):
+    raise SystemExit(
+        "Unsupported PYINSTALLER_TARGET_ARCH. Expected one of: arm64, x86_64, universal2."
+    )
 if os.path.exists(COMMITTED_ICON):
     ICON_PATH = COMMITTED_ICON
 elif os.path.exists(GENERATED_ICON):
@@ -196,6 +204,10 @@ a.datas = [d for d in a.datas if not is_unwanted(d)]
 
 pyz = PYZ(a.pure)
 
+exe_kwargs = {}
+if TARGET_ARCH:
+    exe_kwargs["target_arch"] = TARGET_ARCH
+
 exe = EXE(
     pyz,
     a.scripts,
@@ -208,6 +220,7 @@ exe = EXE(
     upx=False,
     console=False,
     icon=ICON_PATH,
+    **exe_kwargs,
 )
 
 coll = COLLECT(

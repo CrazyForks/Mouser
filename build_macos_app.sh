@@ -8,6 +8,7 @@ ICONSET_DIR="$BUILD_DIR/Mouser.iconset"
 COMMITTED_ICON="$ROOT_DIR/images/AppIcon.icns"
 GENERATED_ICON="$BUILD_DIR/Mouser.icns"
 SOURCE_ICON="$ROOT_DIR/images/logo_icon.png"
+TARGET_ARCH="${PYINSTALLER_TARGET_ARCH:-}"
 export PYINSTALLER_CONFIG_DIR="$BUILD_DIR/pyinstaller"
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
@@ -32,6 +33,18 @@ else
     echo "warning: iconutil failed, continuing without a custom .icns icon"
     rm -f "$GENERATED_ICON"
   fi
+fi
+
+if [[ -n "$TARGET_ARCH" ]]; then
+  case "$TARGET_ARCH" in
+    arm64|x86_64|universal2) ;;
+    *)
+      echo "Unsupported PYINSTALLER_TARGET_ARCH: $TARGET_ARCH"
+      echo "Expected one of: arm64, x86_64, universal2"
+      exit 1
+      ;;
+  esac
+  echo "Building macOS app for target architecture: $TARGET_ARCH"
 fi
 
 python3 -m PyInstaller "$ROOT_DIR/Mouser-mac.spec" --noconfirm

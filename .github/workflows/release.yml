@@ -33,29 +33,49 @@ jobs:
           path: Mouser-Windows.zip
 
   build-macos:
-    runs-on: macos-latest
+    name: build-macos (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Apple Silicon
+            runner: macos-15
+            python_architecture: arm64
+            pyinstaller_target_arch: arm64
+            artifact_name: Mouser-macOS
+            archive_name: Mouser-macOS.zip
+          - name: Intel
+            runner: macos-15-intel
+            python_architecture: x64
+            pyinstaller_target_arch: x86_64
+            artifact_name: Mouser-macOS-intel
+            archive_name: Mouser-macOS-intel.zip
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          architecture: ${{ matrix.python_architecture }}
 
       - name: Install dependencies
         run: pip install -r requirements.txt
 
       - name: Build macOS app
+        env:
+          PYINSTALLER_TARGET_ARCH: ${{ matrix.pyinstaller_target_arch }}
         run: |
           chmod +x build_macos_app.sh
           ./build_macos_app.sh
 
       - name: Create archive
-        run: cd dist && zip -r -y ../Mouser-macOS.zip Mouser.app
+        run: cd dist && zip -r -y "../${{ matrix.archive_name }}" Mouser.app
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Mouser-macOS
-          path: Mouser-macOS.zip
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.archive_name }}
 
   build-linux:
     runs-on: ubuntu-latest
@@ -101,6 +121,7 @@ jobs:
               --clobber \
               Mouser-Windows/Mouser-Windows.zip \
               Mouser-macOS/Mouser-macOS.zip \
+              Mouser-macOS-intel/Mouser-macOS-intel.zip \
               Mouser-Linux/Mouser-Linux.zip
           else
             gh release create "${{ github.ref_name }}" \
@@ -109,5 +130,6 @@ jobs:
               --generate-notes \
               Mouser-Windows/Mouser-Windows.zip \
               Mouser-macOS/Mouser-macOS.zip \
+              Mouser-macOS-intel/Mouser-macOS-intel.zip \
               Mouser-Linux/Mouser-Linux.zip
           fi
