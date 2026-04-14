@@ -143,6 +143,29 @@ UNWANTED_PATTERNS = [
     "QtSql",
 ]
 
+# QtQuick.Controls.Material imports QtQuick.Controls.Basic, so keep the
+# Material and Basic stacks but drop the other optional style families.
+UNUSED_QUICK_CONTROLS_PATTERNS = [
+    "QtQuickControls2Fusion",
+    "QtQuickControls2FusionStyleImpl",
+    "QtQuickControls2Imagine",
+    "QtQuickControls2ImagineStyleImpl",
+    "QtQuickControls2Universal",
+    "QtQuickControls2UniversalStyleImpl",
+    "QtQuickControls2FluentWinUI3StyleImpl",
+    "QtQuickControls2IOSStyleImpl",
+    "QtQuickControls2MacOSStyleImpl",
+]
+
+UNUSED_QUICK_CONTROLS_QML_DIRS = [
+    "/qtquick/controls/fusion/",
+    "/qtquick/controls/fluentwinui3/",
+    "/qtquick/controls/imagine/",
+    "/qtquick/controls/universal/",
+    "/qtquick/controls/ios/",
+    "/qtquick/controls/macos/",
+]
+
 def is_unwanted(path_or_toc_entry):
     # entry can be a (src, dest) tuple (TOC) or a string path
     src = ""
@@ -153,6 +176,12 @@ def is_unwanted(path_or_toc_entry):
     src_lower = src.lower()
     for pat in UNWANTED_PATTERNS:
         if pat.lower() in src_lower:
+            return True
+    for pat in UNUSED_QUICK_CONTROLS_PATTERNS:
+        if pat.lower() in src_lower:
+            return True
+    for qml_dir in UNUSED_QUICK_CONTROLS_QML_DIRS:
+        if qml_dir in src_lower:
             return True
     # also drop plugin subdirectories commonly unused (webengine, multimedia, printsupport, etc.)
     if "/plugins/" in src_lower:
