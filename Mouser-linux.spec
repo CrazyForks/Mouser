@@ -9,6 +9,7 @@ Output: dist/Mouser/  (directory with Mouser executable + dependencies)
 """
 
 import os
+import shutil
 
 ROOT = os.path.abspath(".")
 
@@ -212,3 +213,76 @@ coll = COLLECT(
     upx_exclude=[],
     name="Mouser",
 )
+
+# PyInstaller can still pull transitive Qt payload into the collected dist
+# even after Analysis-time filtering, so trim the packaged tree directly.
+DIST_QT = os.path.join("dist", "Mouser", "_internal", "PySide6", "Qt")
+KEEP_QML = {"QtCore", "QtQml", "QtQuick", "QtNetwork"}
+KEEP_QTQUICK = {"Controls", "Layouts", "Templates", "Window"}
+UNWANTED_PLUGIN_DIRS = {"webengine", "multimedia", "printsupport", "qmltooling", "sensorgestures"}
+UNWANTED_FILENAMES = {"libqpdf.so"}
+
+
+def cleanup_path(path):
+    if os.path.isdir(path):
+        shutil.rmtree(path, ignore_errors=True)
+        print(f"  [cleanup] removed {path}")
+        return
+    if os.path.exists(path):
+        os.remove(path)
+        print(f"  [cleanup] removed {path}")
+
+
+def cleanup_qt_dist():
+    if not os.path.isdir(DIST_QT):
+        return
+
+    lib_root = os.path.join(DIST_QT, "lib")
+    if os.path.isdir(lib_root):
+        for name in os.listdir(lib_root):
+            full_path = os.path.join(lib_root, name)
+            if name in UNWANTED_FILENAMES or is_unwanted(full_path):
+                cleanup_path(full_path)
+
+    qml_root = os.path.join(DIST_QT, "qml")
+    if os.path.isdir(qml_root):
+        for name in os.listdir(qml_root):
+            full_path = os.path.join(qml_root, name)
+            if name not in KEEP_QML:
+                cleanup_path(full_path)
+
+        qtquick_root = os.path.join(qml_root, "QtQuick")
+        if os.path.isdir(qtquick_root):
+            for name in os.listdir(qtquick_root):
+                full_path = os.path.join(qtquick_root, name)
+                if name not in KEEP_QTQUICK:
+                    cleanup_path(full_path)
+
+        for current_root, dirnames, filenames in os.walk(qml_root, topdown=False):
+            for filename in filenames:
+                full_path = os.path.join(current_root, filename)
+                if is_unwanted(full_path):
+                    cleanup_path(full_path)
+            for dirname in dirnames:
+                full_path = os.path.join(current_root, dirname)
+                if is_unwanted(full_path):
+                    cleanup_path(full_path)
+
+    plugins_root = os.path.join(DIST_QT, "plugins")
+    if os.path.isdir(plugins_root):
+        for name in os.listdir(plugins_root):
+            full_path = os.path.join(plugins_root, name)
+            if name in UNWANTED_PLUGIN_DIRS or is_unwanted(full_path):
+                cleanup_path(full_path)
+            elif os.path.isdir(full_path):
+                for child_name in os.listdir(full_path):
+                    child_path = os.path.join(full_path, child_name)
+                    if child_name in UNWANTED_FILENAMES or is_unwanted(child_path):
+                        cleanup_path(child_path)
+
+    cleanup_path(os.path.join(DIST_QT, "translations"))
+
+
+print("[Mouser] Post-build Linux Qt cleanup...")
+cleanup_qt_dist()
+print("[Mouser] Linux Qt cleanup done.")
