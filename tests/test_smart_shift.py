@@ -494,12 +494,32 @@ class BackendSmartShiftTests(unittest.TestCase):
         engine_mock.set_smart_shift.assert_called_once_with("ratchet", True, 45)
 
     def test_handle_smart_shift_read_updates_in_memory_config(self):
-        backend = self._make_backend()
+        backend = self._make_backend({"smart_shift_threshold": 42})
         with patch("ui.backend.save_config") as save_mock:
             # Simulate the two-step cross-thread call: stage state, then invoke handler
-            backend._pending_smart_shift_state = {"mode": "freespin", "enabled": True, "threshold": 35}
+            backend._pending_smart_shift_state = {"mode": "freespin", "enabled": False, "threshold": 35}
             backend._handleSmartShiftRead()
         # Hardware reads should NOT be persisted — user's explicit saves drive the file.
+        save_mock.assert_not_called()
+        self.assertEqual(backend._cfg["settings"]["smart_shift_mode"], "freespin")
+        self.assertFalse(backend._cfg["settings"]["smart_shift_enabled"])
+        self.assertEqual(backend._cfg["settings"]["smart_shift_threshold"], 42)
+
+    def test_handle_smart_shift_read_preserves_saved_fallback_mode_when_enabled(self):
+        backend = self._make_backend({
+            "smart_shift_mode": "freespin",
+            "smart_shift_enabled": True,
+            "smart_shift_threshold": 30,
+        })
+        with patch("ui.backend.save_config") as save_mock:
+            # Real hardware reads report enabled SmartShift as ratchet + threshold,
+            # which must not overwrite the user's saved fixed-mode fallback.
+            backend._pending_smart_shift_state = {
+                "mode": "ratchet",
+                "enabled": True,
+                "threshold": 35,
+            }
+            backend._handleSmartShiftRead()
         save_mock.assert_not_called()
         self.assertEqual(backend._cfg["settings"]["smart_shift_mode"], "freespin")
         self.assertTrue(backend._cfg["settings"]["smart_shift_enabled"])
