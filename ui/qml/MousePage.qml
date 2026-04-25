@@ -430,8 +430,7 @@ Item {
 
     function customLabel(actionId) {
         if (!actionId.startsWith("custom:")) return ""
-        var parts = actionId.substring(7).split("+")
-        return parts.map(function(p){return p.charAt(0).toUpperCase()+p.slice(1)}).join(" + ")
+        return backend.actionLabelFor(actionId)
     }
 
     function isCustomAction(actionId) {

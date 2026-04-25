@@ -18,7 +18,7 @@ def custom_action_label(action_id):
     if not action_id.startswith("custom:"):
         return action_id
     parts = action_id[7:].split("+")
-    return " + ".join(p.capitalize() for p in parts)
+    return " + ".join(_pretty_custom_key_name(p) for p in parts)
 
 
 def valid_custom_key_names():
@@ -29,12 +29,42 @@ def valid_custom_key_names():
         return []
 
 
+def normalize_captured_shortcut_parts(modifier_names, key_name="", platform_name=None):
+    """Normalize captured modifier/key names into stored shortcut syntax."""
+    platform_name = platform_name or sys.platform
+
+    def _normalize(name):
+        lowered = (name or "").strip().lower()
+        if not lowered:
+            return ""
+        if platform_name == "darwin":
+            if lowered == "ctrl":
+                return "super"
+            if lowered == "super":
+                return "ctrl"
+        return lowered
+
+    parts = []
+    for name in modifier_names:
+        normalized = _normalize(name)
+        if normalized and normalized not in parts:
+            parts.append(normalized)
+
+    normalized_key = _normalize(key_name)
+    if normalized_key and normalized_key not in parts:
+        parts.append(normalized_key)
+    return "+".join(parts)
+
+
 _CUSTOM_KEY_NAME_ALIASES = {
     "control": "ctrl",
     "option": "alt",
+    "opt": "alt",
     "cmd": "super",
     "command": "super",
     "meta": "super",
+    "win": "super",
+    "windows": "super",
     "return": "enter",
     "escape": "esc",
 }
@@ -48,6 +78,19 @@ def _build_custom_key_name_map(base_map):
         if code is not None:
             key_map[alias] = code
     return key_map
+
+
+def _pretty_custom_key_name(name):
+    normalized = _CUSTOM_KEY_NAME_ALIASES.get(name.strip().lower(), name.strip().lower())
+    if normalized in {"super", "cmd", "command", "meta", "win", "windows"}:
+        return "Super"
+    if normalized in {"alt", "option", "opt"}:
+        return "Opt" if sys.platform == "darwin" else "Alt"
+    if normalized == "ctrl":
+        return "Ctrl"
+    if normalized == "shift":
+        return "Shift"
+    return normalized.capitalize()
 
 
 def _parse_custom_combo(action_id, key_name_to_code):
@@ -673,6 +716,14 @@ elif sys.platform == "darwin":
 
     # Mouse button simulation
     # CGEvent mouse button constants
+    _MAC_MOUSE_ACTIONS = frozenset({
+        "mouse_left_click",
+        "mouse_right_click",
+        "mouse_middle_click",
+        "mouse_back_click",
+        "mouse_forward_click",
+    })
+
     _MAC_MOUSE_MAP = {
         "mouse_left_click": {
             "down_type": Quartz.kCGEventLeftMouseDown if _QUARTZ_OK else 1,
@@ -725,7 +776,7 @@ elif sys.platform == "darwin":
         _inject_mac_mouse(action_id, False)
 
     def is_mouse_button_action(action_id):
-        return action_id in _MAC_MOUSE_MAP
+        return action_id in _MAC_MOUSE_ACTIONS
 
     # Modifier flag bits for CGEvent
     _MOD_FLAGS = {

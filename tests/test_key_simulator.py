@@ -37,9 +37,12 @@ class CustomShortcutParsingTests(unittest.TestCase):
 
         self.assertEqual(key_map["control"], 1)
         self.assertEqual(key_map["option"], 2)
+        self.assertEqual(key_map["opt"], 2)
         self.assertEqual(key_map["cmd"], 3)
         self.assertEqual(key_map["command"], 3)
         self.assertEqual(key_map["meta"], 3)
+        self.assertEqual(key_map["win"], 3)
+        self.assertEqual(key_map["windows"], 3)
         self.assertEqual(key_map["return"], 4)
         self.assertEqual(key_map["escape"], 5)
 
@@ -92,6 +95,70 @@ class LinuxDesktopShortcutTests(unittest.TestCase):
         self.assertIn(module.KEY_4, module._ALL_KEY_CODES)
         self.assertEqual(module._KEY_NAME_TO_CODE["control"], module.KEY_LEFTCTRL)
         self.assertEqual(module._KEY_NAME_TO_CODE["cmd"], module.KEY_LEFTMETA)
+
+class CustomShortcutCaptureTests(unittest.TestCase):
+    def test_custom_action_label_uses_super_as_canonical_name(self):
+        self.assertEqual(
+            key_simulator.custom_action_label("custom:cmd+w"),
+            "Super + W",
+        )
+        self.assertEqual(
+            key_simulator.custom_action_label("custom:super+w"),
+            "Super + W",
+        )
+
+    def test_macos_swaps_qt_control_and_meta_semantics(self):
+        self.assertEqual(
+            key_simulator.normalize_captured_shortcut_parts(
+                ["ctrl"],
+                "w",
+                platform_name="darwin",
+            ),
+            "super+w",
+        )
+        self.assertEqual(
+            key_simulator.normalize_captured_shortcut_parts(
+                ["super"],
+                "w",
+                platform_name="darwin",
+            ),
+            "ctrl+w",
+        )
+        self.assertEqual(
+            key_simulator.normalize_captured_shortcut_parts(
+                ["ctrl"],
+                "ctrl",
+                platform_name="darwin",
+            ),
+            "super",
+        )
+        self.assertEqual(
+            key_simulator.normalize_captured_shortcut_parts(
+                ["super"],
+                "super",
+                platform_name="darwin",
+            ),
+            "ctrl",
+        )
+
+    def test_non_macos_keeps_qt_control_and_meta_semantics(self):
+        self.assertEqual(
+            key_simulator.normalize_captured_shortcut_parts(
+                ["ctrl"],
+                "w",
+                platform_name="linux",
+            ),
+            "ctrl+w",
+        )
+        self.assertEqual(
+            key_simulator.normalize_captured_shortcut_parts(
+                ["super"],
+                "w",
+                platform_name="linux",
+            ),
+            "super+w",
+        )
+
 
 class MouseButtonActionTests(unittest.TestCase):
     """Tests for the mouse-button-to-mouse-button remapping feature."""
