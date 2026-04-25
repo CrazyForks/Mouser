@@ -1029,6 +1029,7 @@ elif sys.platform == "darwin":
             self.debug_mode = False
             self.invert_vscroll = False
             self.invert_hscroll = False
+            self.ignore_trackpad = True
             self._gesture_active = False
             self._hid_gesture = None
             self._wake_observer = None
@@ -1484,13 +1485,14 @@ elif sys.platform == "darwin":
                         ) == _SCROLL_INVERT_MARKER
                     ):
                         return cg_event
-                    # Pass through trackpad / Magic Mouse continuous scroll
-                    # events untouched — only intercept discrete mouse wheel.
-                    _kCGScrollWheelEventIsContinuous = 88
-                    if Quartz.CGEventGetIntegerValueField(
-                        cg_event, _kCGScrollWheelEventIsContinuous
-                    ):
-                        return cg_event
+                    if self.ignore_trackpad:
+                        # Pass through trackpad / Magic Mouse continuous scroll
+                        # events untouched — only intercept discrete mouse wheel.
+                        _kCGScrollWheelEventIsContinuous = 88
+                        if Quartz.CGEventGetIntegerValueField(
+                            cg_event, _kCGScrollWheelEventIsContinuous
+                        ):
+                            return cg_event
                     h_delta = Quartz.CGEventGetIntegerValueField(
                         cg_event, Quartz.kCGScrollWheelEventFixedPtDeltaAxis2)
                     h_delta = h_delta / 65536.0

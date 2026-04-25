@@ -359,7 +359,7 @@ Mouser handles mouse power-off/on cycles automatically:
 All settings are stored in `%APPDATA%\Mouser\config.json` (Windows) or `~/Library/Application Support/Mouser/config.json` (macOS). The config supports:
 - Multiple named profiles with per-profile button mappings, including gesture tap + swipe actions
 - Per-profile app associations (list of `.exe` names)
-- Global settings: DPI, scroll inversion, gesture tuning, appearance, debug flags, Smart Shift, and startup preferences (`start_at_login`, `start_minimized`)
+- Global settings: DPI, scroll inversion, macOS trackpad filtering, gesture tuning, appearance, debug flags, Smart Shift, and startup preferences (`start_at_login`, `start_minimized`)
 - Per-device layout override selections for unsupported devices
 - Automatic migration from older config versions
 
@@ -431,6 +431,7 @@ The app has two pages accessible from a slim sidebar:
 
 - **DPI slider:** 200–8000 with quick presets (400, 800, 1000, 1600, 2400, 4000, 6000, 8000). Reads the current DPI from the device on startup.
 - **Scroll inversion:** Independent toggles for vertical and horizontal scroll direction.
+- **Ignore trackpad (macOS):** Keep trackpad and Magic Mouse continuous scroll gestures out of Mouser mappings. Disable this only if you intentionally want Mouser to handle Magic Mouse or trackpad scroll events.
 - **Smart Shift:** Toggle Logitech Smart Shift (ratchet-to-free-spin scroll mode switching) on or off.
 - **Startup controls:** **Start at login** (Windows and macOS) and **Start minimized** (all platforms) to launch directly into the system tray.
 

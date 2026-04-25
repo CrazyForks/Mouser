@@ -472,6 +472,30 @@ class MacOSTrackpadScrollFilterTests(unittest.TestCase):
         self.assertIs(result, cg_event)  # passed through, not blocked
         self.assertTrue(hook._dispatch_queue.empty())
 
+    def test_trackpad_filter_can_be_disabled(self):
+        """Continuous scroll should be handled when ignore_trackpad is off."""
+        hook = self._make_hook()
+        hook.ignore_trackpad = False
+        cg_event = MagicMock(name="cg_event")
+
+        def _get(event, field):
+            if field == self._kCGScrollWheelEventIsContinuous:
+                return 1  # trackpad / Magic Mouse
+            if field == self.mock_quartz.kCGScrollWheelEventFixedPtDeltaAxis2:
+                return 3 * 65536  # positive = HSCROLL_RIGHT
+            if field == self.mock_quartz.kCGEventSourceUserData:
+                return 0
+            return 0
+        self.mock_quartz.CGEventGetIntegerValueField.side_effect = _get
+
+        result = hook._event_tap_callback(
+            None, self._kCGEventScrollWheel, cg_event, None)
+
+        self.assertIsNone(result)
+        self.assertFalse(hook._dispatch_queue.empty())
+        event = hook._dispatch_queue.get_nowait()
+        self.assertEqual(event.event_type, mouse_hook.MouseEvent.HSCROLL_RIGHT)
+
     def test_mouse_wheel_hscroll_dispatched_and_blocked(self):
         """Discrete mouse wheel horizontal scroll SHOULD dispatch and block."""
         hook = self._make_hook()
