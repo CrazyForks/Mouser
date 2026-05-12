@@ -75,6 +75,7 @@ class BackendDeviceLayoutTests(unittest.TestCase):
         with (
             patch("ui.backend.load_config", return_value=copy.deepcopy(DEFAULT_CONFIG)),
             patch("ui.backend.save_config"),
+            patch("ui.backend.supports_login_startup", return_value=False),
         ):
             return Backend(engine=engine, root_dir=root_dir)
 
@@ -183,6 +184,35 @@ class BackendDeviceLayoutTests(unittest.TestCase):
         self.assertTrue(backend.smartShiftSupported)
         self.assertEqual(backend.connectedDeviceKey, "mx_master_3")
         self.assertEqual(mouse_notifications, [])
+        self.assertEqual(hid_notifications, [True])
+
+    def test_retry_refresh_promotes_late_hid_features_ready(self):
+        device = SimpleNamespace(
+            key="mx_master_3",
+            display_name="MX Master 3S",
+            dpi_min=200,
+            dpi_max=8000,
+            ui_layout="mx_master",
+        )
+        engine = _FakeEngine(
+            device_connected=True,
+            connected_device=None,
+            hid_features_ready=False,
+            smart_shift_supported=False,
+        )
+        backend = self._make_backend(engine=engine)
+        backend._mouse_connected = True
+        hid_notifications = []
+        backend.hidFeaturesReadyChanged.connect(lambda: hid_notifications.append(True))
+
+        engine.connected_device = device
+        engine.hid_features_ready = True
+        engine.smart_shift_supported = True
+        backend._refresh_connected_device_info()
+
+        self.assertTrue(backend.hidFeaturesReady)
+        self.assertTrue(backend.smartShiftSupported)
+        self.assertEqual(backend.connectedDeviceKey, "mx_master_3")
         self.assertEqual(hid_notifications, [True])
 
     def test_init_wires_engine_status_callback_into_backend(self):
@@ -480,6 +510,63 @@ class BackendLoginStartupTests(unittest.TestCase):
 
         apply_mock.assert_called_once_with(True)
         self.assertTrue(backend.startAtLogin)
+
+    def test_set_start_at_login_keeps_config_when_os_apply_fails(self):
+        status_messages = []
+        with (
+            patch("ui.backend.load_config", return_value=copy.deepcopy(DEFAULT_CONFIG)),
+            patch("ui.backend.save_config") as save_mock,
+            patch("ui.backend.supports_login_startup", return_value=True),
+            patch("ui.backend.sync_login_startup_from_config"),
+            patch("ui.backend.apply_login_startup", side_effect=RuntimeError("denied")),
+        ):
+            backend = Backend(engine=None)
+            backend.statusMessage.connect(status_messages.append)
+            backend.setStartAtLogin(True)
+
+        save_mock.assert_not_called()
+        self.assertFalse(backend.startAtLogin)
+        self.assertEqual(status_messages, ["Failed to update login item: denied"])
+
+    def test_set_start_at_login_rolls_back_os_when_config_save_fails(self):
+        status_messages = []
+        with (
+            patch("ui.backend.load_config", return_value=copy.deepcopy(DEFAULT_CONFIG)),
+            patch("ui.backend.save_config", side_effect=RuntimeError("disk full")),
+            patch("ui.backend.supports_login_startup", return_value=True),
+            patch("ui.backend.sync_login_startup_from_config"),
+            patch("ui.backend.apply_login_startup") as apply_mock,
+        ):
+            backend = Backend(engine=None)
+            backend.statusMessage.connect(status_messages.append)
+            backend.setStartAtLogin(True)
+
+        self.assertEqual([c.args for c in apply_mock.call_args_list], [(True,), (False,)])
+        self.assertFalse(backend.startAtLogin)
+        self.assertEqual(status_messages, ["Failed to save login item setting: disk full"])
+
+    def test_set_start_at_login_reports_inconsistent_state_when_rollback_fails(self):
+        status_messages = []
+        with (
+            patch("ui.backend.load_config", return_value=copy.deepcopy(DEFAULT_CONFIG)),
+            patch("ui.backend.save_config", side_effect=RuntimeError("disk full")),
+            patch("ui.backend.supports_login_startup", return_value=True),
+            patch("ui.backend.sync_login_startup_from_config"),
+            patch(
+                "ui.backend.apply_login_startup",
+                side_effect=[None, RuntimeError("rollback failed")],
+            ) as apply_mock,
+        ):
+            backend = Backend(engine=None)
+            backend.statusMessage.connect(status_messages.append)
+            backend.setStartAtLogin(True)
+
+        self.assertEqual([c.args for c in apply_mock.call_args_list], [(True,), (False,)])
+        self.assertFalse(backend.startAtLogin)
+        self.assertEqual(
+            status_messages,
+            ["Start-at-login state is inconsistent; please restart Mouser to recover."],
+        )
 
     def test_set_start_minimized_does_not_call_apply_login_startup(self):
         cfg = copy.deepcopy(DEFAULT_CONFIG)

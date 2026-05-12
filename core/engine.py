@@ -69,6 +69,7 @@ class Engine:
         self._lock = threading.Lock()
         self.hook.set_debug_callback(self._emit_debug)
         self.hook.set_gesture_callback(self._emit_gesture_event)
+        self.hook.set_status_callback(self._emit_status)
         self._setup_hooks()
         self.hook.set_connection_change_callback(self._on_connection_change)
         # Apply persisted DPI setting
@@ -765,6 +766,10 @@ class Engine:
 
     def set_enabled(self, enabled):
         self._enabled = bool(enabled)
+
+    def set_ui_passthrough(self, enabled):
+        if hasattr(self.hook, "set_ui_passthrough"):
+            self.hook.set_ui_passthrough(enabled)
 
     def _emit_linux_permission_warning(self):
         report = linux_permission_report()

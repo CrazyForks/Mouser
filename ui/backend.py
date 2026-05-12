@@ -238,7 +238,10 @@ class Backend(QObject):
                 getattr(engine, "hid_features_ready", False)
             )
         if supports_login_startup():
-            sync_login_startup_from_config(self.startAtLogin)
+            try:
+                sync_login_startup_from_config(self.startAtLogin)
+            except Exception as exc:
+                print(f"[startup] Failed to sync desktop integration: {exc}", file=sys.stderr)
         else:
             self._cfg.setdefault("settings", {})["start_at_login"] = False
         self._sync_connected_device_info()
@@ -664,19 +667,39 @@ class Backend(QObject):
     def setStartAtLogin(self, value):
         enabled = bool(value)
         if not supports_login_startup():
-            self.statusMessage.emit(
-                "Start at login is only available on Windows and macOS"
-            )
+            self.statusMessage.emit("Start at login is not available on this platform")
             return
-        if self.startAtLogin == enabled:
+        settings = self._cfg.setdefault("settings", {})
+        old_enabled = bool(settings.get("start_at_login", False))
+        if old_enabled == enabled:
             return
-        self._cfg.setdefault("settings", {})["start_at_login"] = enabled
-        save_config(self._cfg)
         try:
             apply_login_startup(enabled)
         except Exception as exc:
             self.settingsChanged.emit()
             self.statusMessage.emit(f"Failed to update login item: {exc}")
+            return
+        settings["start_at_login"] = enabled
+        try:
+            save_config(self._cfg)
+        except Exception as exc:
+            settings["start_at_login"] = old_enabled
+            rollback_error = None
+            try:
+                apply_login_startup(old_enabled)
+            except Exception as rollback_exc:
+                rollback_error = rollback_exc
+                print(
+                    "[Backend] Failed to roll back start-at-login OS state "
+                    f"after config save failure: {rollback_exc}"
+                )
+            self.settingsChanged.emit()
+            if rollback_error is not None:
+                self.statusMessage.emit(
+                    "Start-at-login state is inconsistent; please restart Mouser to recover."
+                )
+            else:
+                self.statusMessage.emit(f"Failed to save login item setting: {exc}")
             return
         self.settingsChanged.emit()
         self.statusMessage.emit(
@@ -696,6 +719,18 @@ class Backend(QObject):
     def _applySmartShift(self, mode=None, enabled=None, threshold=None):
         """Update one or more SmartShift settings, persist config, and push to device."""
         settings = self._cfg.setdefault("settings", {})
+        current_mode = settings.get("smart_shift_mode", "ratchet")
+        current_enabled = settings.get("smart_shift_enabled", False)
+        current_threshold = settings.get("smart_shift_threshold", 25)
+        next_mode = current_mode if mode is None else mode
+        next_enabled = current_enabled if enabled is None else enabled
+        next_threshold = current_threshold if threshold is None else threshold
+        if (
+            next_mode == current_mode
+            and next_enabled == current_enabled
+            and next_threshold == current_threshold
+        ):
+            return
         if mode is not None:
             settings["smart_shift_mode"] = mode
         if enabled is not None:
@@ -725,6 +760,9 @@ class Backend(QObject):
 
     @Slot(bool)
     def setInvertVScroll(self, value):
+        value = bool(value)
+        if self.invertVScroll == value:
+            return
         self._cfg.setdefault("settings", {})["invert_vscroll"] = value
         save_config(self._cfg)
         if self._engine:
@@ -733,6 +771,9 @@ class Backend(QObject):
 
     @Slot(bool)
     def setInvertHScroll(self, value):
+        value = bool(value)
+        if self.invertHScroll == value:
+            return
         self._cfg.setdefault("settings", {})["invert_hscroll"] = value
         save_config(self._cfg)
         if self._engine:
@@ -1137,6 +1178,12 @@ class Backend(QObject):
         self._connected_device_refresh_pending = False
         if not self._mouse_connected:
             return
+        previous_hid_features_ready = self._hid_features_ready
+        self._hid_features_ready = bool(
+            getattr(self._engine, "hid_features_ready", False)
+        ) if self._engine else False
+        if self._hid_features_ready != previous_hid_features_ready:
+            self.hidFeaturesReadyChanged.emit()
         self._connected_device_refresh_attempts += 1
         self._sync_connected_device_info()
 
