@@ -64,60 +64,99 @@ ICO_SIZES = ((16, 16), (24, 24), (32, 32), (48, 48), (64, 64),
              (128, 128), (256, 256))
 
 
+class BuildIconError(SystemExit):
+    """Raised for every recoverable build-time failure.
+
+    Subclass of :class:`SystemExit` so an unhandled raise still exits
+    the process with a non-zero status, but the type can be caught by
+    tests without also catching unrelated SystemExits (e.g. argparse).
+    """
+
+    def __init__(self, message: str) -> None:
+        super().__init__(f"build_app_icon.py: {message}")
+
+
 def _require_tool(name: str) -> str:
     path = shutil.which(name)
     if path is None:
-        raise SystemExit(
-            f"build_app_icon.py: required tool not found: {name!r}.\n"
-            f"Run on macOS; iconutil and sips ship with the OS."
+        raise BuildIconError(
+            f"required tool not found: {name!r}. "
+            "Run on macOS; iconutil and sips ship with the OS."
         )
     return path
 
 
-def _validate_master() -> Image.Image:
-    if not MASTER.is_file():
-        raise SystemExit(f"build_app_icon.py: master missing at {MASTER}")
-    image = Image.open(MASTER)
+def _validate_master(master_path: Path = MASTER) -> Image.Image:
+    if not master_path.is_file():
+        raise BuildIconError(f"master missing at {master_path}")
+    try:
+        image = Image.open(master_path)
+    except Exception as exc:  # pragma: no cover - Pillow wraps many error types
+        raise BuildIconError(f"master at {master_path} is not a valid image: {exc}") from exc
     if image.mode != "RGBA":
-        raise SystemExit(
-            f"build_app_icon.py: master must be RGBA, got {image.mode!r}"
-        )
+        raise BuildIconError(f"master must be RGBA, got {image.mode!r}")
     if image.size != (MAC_CANVAS, MAC_CANVAS):
-        raise SystemExit(
-            f"build_app_icon.py: master must be {MAC_CANVAS}x{MAC_CANVAS}, "
+        raise BuildIconError(
+            f"master must be {MAC_CANVAS}x{MAC_CANVAS}, "
             f"got {image.size[0]}x{image.size[1]}"
         )
     return image
 
 
-def build_icns(iconutil: str, sips: str) -> None:
+def _run_tool(argv: list[str]) -> None:
+    """Run an external CLI tool and surface stderr on failure.
+
+    ``subprocess.run(check=True)`` raises :class:`CalledProcessError`
+    on non-zero exit but the user only sees a Python traceback. We
+    capture stderr explicitly so the failure message is actionable.
+    """
+    try:
+        subprocess.run(
+            argv,
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+        )
+    except subprocess.CalledProcessError as exc:
+        stderr = (exc.stderr or b"").decode("utf-8", errors="replace").strip()
+        raise BuildIconError(
+            f"{argv[0]} exited with status {exc.returncode}: {stderr or '(no stderr)'}"
+        ) from exc
+
+
+def build_icns(
+    iconutil: str,
+    sips: str,
+    *,
+    master_path: Path = MASTER,
+    out_path: Path = OUT_ICNS,
+) -> None:
     with tempfile.TemporaryDirectory(prefix="mouser-iconset-") as tmp:
         iconset = Path(tmp) / "Mouser.iconset"
         iconset.mkdir()
-        for size in ICNS_SIZES:
+        # Sorted iteration so that every CI run produces the same iconset
+        # directory walk order regardless of filesystem enumeration. The
+        # iconutil binary indexes by filename so this is belt-and-braces.
+        for size in sorted(ICNS_SIZES):
             for retina in (False, True):
                 pixel = size * 2 if retina else size
                 suffix = "@2x" if retina else ""
                 out = iconset / f"icon_{size}x{size}{suffix}.png"
-                subprocess.run(
+                _run_tool(
                     [sips, "-z", str(pixel), str(pixel),
-                     str(MASTER), "--out", str(out)],
-                    check=True, stdout=subprocess.DEVNULL,
+                     str(master_path), "--out", str(out)],
                 )
-        subprocess.run(
-            [iconutil, "-c", "icns", str(iconset), "-o", str(OUT_ICNS)],
-            check=True,
-        )
+        _run_tool([iconutil, "-c", "icns", str(iconset), "-o", str(out_path)])
 
 
-def build_ico(master: Image.Image) -> None:
+def build_ico(master: Image.Image, *, out_path: Path = OUT_ICO) -> None:
     # Lift the squircle out of the master, then re-fit it to ~96% of the
     # Windows canvas. We use the alpha channel as the squircle mask: pixels
     # with alpha > 0 belong to the squircle.
     alpha = master.split()[-1]
     bbox = alpha.getbbox()
     if bbox is None:
-        raise SystemExit("build_app_icon.py: master has no visible pixels")
+        raise BuildIconError("master has no visible pixels")
     squircle = master.crop(bbox)
     target_side = int(round(WIN_CANVAS * WIN_FILL_RATIO))
     w, h = squircle.size
@@ -130,13 +169,15 @@ def build_ico(master: Image.Image) -> None:
     fx = (WIN_CANVAS - fitted.size[0]) // 2
     fy = (WIN_CANVAS - fitted.size[1]) // 2
     canvas.paste(fitted, (fx, fy), fitted)
-    canvas.save(OUT_ICO, format="ICO", sizes=list(ICO_SIZES))
+    canvas.save(out_path, format="ICO", sizes=list(ICO_SIZES))
 
 
 def main() -> int:
     if sys.platform != "darwin":
-        raise SystemExit(
-            "build_app_icon.py must run on macOS (needs iconutil + sips)."
+        raise BuildIconError(
+            "must run on macOS (needs iconutil + sips). "
+            "The .ico Windows variant cannot be regenerated alone here; "
+            "rebuild from macOS so both assets stay in lockstep."
         )
     iconutil = _require_tool("iconutil")
     sips = _require_tool("sips")
