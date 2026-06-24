@@ -42,6 +42,15 @@ G502_BUTTONS = (
     "hscroll_right",
 )
 
+# M650 Signature family: no horizontal scroll, no mode-shift, no dedicated gesture button.
+# Exposes a Virtual Gesture Button (CID 0x00D7) via REPROG_CONTROLS_V4 but no physical
+# gesture key. Middle click, back, and forward side buttons are the configurable controls.
+M650_BUTTONS = (
+    "middle",
+    "xbutton1",
+    "xbutton2",
+)
+
 
 def _hotspot(
     button_key: str,
@@ -192,6 +201,36 @@ LOGI_DEVICE_SPECS = (
         "supported_buttons": MX_ANYWHERE_BUTTONS,
         "dpi_max": 4000,
     },
+    # -- M650 Signature family ------------------------------------------------
+    # Compact wireless mouse (middle, back, forward buttons). Connects via Logi
+    # Bolt receiver or Bluetooth LE. HID++ reports device name "Signature M650".
+    # Confirmed via live HID++ probe: REPROG_CONTROLS_V4 (slot 2 on Bolt receiver),
+    # LOWRES_WHEEL, ADJUSTABLE_DPI (200–4000 DPI), UNIFIED_BATTERY.
+    # Bluetooth LE product ID confirmed in issue #215 as 0xB02A; keep the
+    # common HID/OS name variants as fallbacks because some platforms only
+    # surface the product string.
+    {
+        "key": "m650",
+        "display_name": "M650 Signature",
+        "product_ids": (0xB02A,),
+        "aliases": (
+            "Signature M650",
+            "Logi M650",
+            "Logitech Signature M650",
+            "M650",
+            "M650 Signature",
+            "Logitech M650 Signature",
+            "M650 L",
+            "M650 L Signature",
+            "Signature M650 L",
+            "M650 Signature for Business",
+        ),
+        "ui_layout": "m650",
+        "image_asset": "icons/mouse-simple.svg",
+        "supported_buttons": M650_BUTTONS,
+        "dpi_min": 200,
+        "dpi_max": 4000,
+    },
     # -- G502 family ----------------------------------------------------------
     # Product IDs verified against Solaar's device descriptors. Wireless
     # variants list both the wired USB PID and the Lightspeed receiver WPID.
@@ -259,6 +298,23 @@ LOGI_DEVICE_SPECS = (
 
 
 LOGI_DEVICE_LAYOUTS = {
+    # M650 Signature: no device art yet; shows generic silhouette with the
+    # three-button layout. Interactive hotspot diagram can be added once
+    # mouse artwork is sourced and product_ids are confirmed.
+    "m650": {
+        "key": "m650",
+        "label": "M650 Signature",
+        "image_asset": "icons/mouse-simple.svg",
+        "image_width": 220,
+        "image_height": 220,
+        "interactive": False,
+        "manual_selectable": True,
+        "note": (
+            "M650 Signature — middle click, back, and forward side buttons "
+            "are all configurable. No gesture button or horizontal scroll."
+        ),
+        "hotspots": [],
+    },
     # Shared placeholder for the G502 family: no device art has been
     # contributed yet, so the page shows the generic silhouette with the
     # G502 button list instead of an interactive hotspot diagram.

@@ -85,6 +85,47 @@ class LogiDeviceRegistryTests(unittest.TestCase):
                     "logitech-mice/mx_anywhere_3/mouse.png",
                 )
 
+    def test_resolve_m650_by_bluetooth_pid(self):
+        device = resolve_device(product_id=0xB02A)
+
+        self.assertIsNotNone(device)
+        self.assertEqual(device.key, "m650")
+        self.assertEqual(device.ui_layout, "m650")
+
+    def test_resolve_m650_by_common_name_variants(self):
+        for product_name in (
+            "Signature M650",
+            "Logi M650",
+            "Logitech Signature M650",
+        ):
+            with self.subTest(product_name=product_name):
+                device = resolve_device(product_name=product_name)
+
+                self.assertIsNotNone(device)
+                self.assertEqual(device.key, "m650")
+                self.assertEqual(device.ui_layout, "m650")
+
+    def test_build_m650_connected_device_info_uses_catalog_layout_and_buttons(self):
+        info = build_connected_device_info(
+            product_id=0xB02A,
+            product_name="Signature M650",
+            reprog_controls=[
+                {"cid": 0x0052},
+                {"cid": 0x0053},
+                {"cid": 0x0056},
+                {"cid": 0x00D7},
+            ],
+            gesture_cids=(0x00D7,),
+        )
+
+        self.assertEqual(info.key, "m650")
+        self.assertEqual(info.display_name, "M650 Signature")
+        self.assertEqual(info.ui_layout, "m650")
+        self.assertEqual(info.image_asset, "icons/mouse-simple.svg")
+        self.assertEqual(info.supported_buttons, ("middle", "xbutton1", "xbutton2"))
+        self.assertEqual(info.dpi_min, 200)
+        self.assertEqual(info.dpi_max, 4000)
+
     def test_mx_anywhere_3s_uses_exact_catalog_layout(self):
         info = build_connected_device_info(product_id=0xB037)
 
