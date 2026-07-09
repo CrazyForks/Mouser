@@ -69,6 +69,8 @@ class Engine:
         self._last_native_invert_target = (False, False)
         self._last_hid_features_ready = bool(self.hid_features_ready)
         self._hid_replay_requested_this_launch = False
+        self._desktop_info_cache = None
+        self._desktop_info_ts = 0.0
         self._replay_inflight = False
         self._replay_pending_rerun = False
         self._replay_lock = threading.Lock()
@@ -143,16 +145,6 @@ class Engine:
             has_dpi_switch
             and any(
                 pdata.get("mappings", {}).get("dpi_switch", "none") != "none"
-                for pdata in self.cfg.get("profiles", {}).values()
-            )
-        )
-
-        # Divert Actions Ring CID (0x01A0) on MX Master 4 when mapped.
-        has_actions_ring = device_buttons is None or "actions_ring" in device_buttons
-        self.hook.divert_actions_ring = (
-            has_actions_ring
-            and any(
-                pdata.get("mappings", {}).get("actions_ring", "none") != "none"
                 for pdata in self.cfg.get("profiles", {}).values()
             )
         )
@@ -481,7 +473,7 @@ class Engine:
             # CGSGetActiveSpace returns the current space id64 of the
             # display where the cursor is located.
             cg = ctypes.CDLL('/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics')
-            cg.CGSGetActiveSpace.restype = ctypes.c_int32
+            cg.CGSGetActiveSpace.restype = ctypes.c_int64
             current_id64 = cg.CGSGetActiveSpace()
 
             # Read spaces config
@@ -570,8 +562,12 @@ class Engine:
 
         settings = self.cfg.setdefault("settings", {})
 
-        # Get desktop info
-        desktop_count, current = self._get_macos_desktop_info()
+        # Get desktop info (cached for 5 seconds to avoid subprocess per press)
+        now = time.time()
+        if self._desktop_info_cache is None or (now - self._desktop_info_ts) > 5.0:
+            self._desktop_info_cache = self._get_macos_desktop_info()
+            self._desktop_info_ts = now
+        desktop_count, current = self._desktop_info_cache
 
         # Only one desktop — nothing to cycle
         if desktop_count <= 1:
@@ -852,6 +848,10 @@ class Engine:
             if hasattr(hg, "set_haptic_level"):
                 hg.set_haptic_level(saved_haptic)
 
+        saved_force = self.cfg.get("settings", {}).get("force_sensitivity")
+        if saved_force is not None and getattr(hg, "force_sensing_supported", False):
+            hg.set_force_sensing(saved_force)
+
         return replay_ok
 
     def _replay_saved_settings_worker(self):
@@ -1048,6 +1048,28 @@ class Engine:
         if hg:
             return hg.set_haptic_level(level)
         print("[Engine] No HID++ connection -- haptic level not applied")
+        return False
+
+    @property
+    def force_sensing_supported(self):
+        hg = self.hook._hid_gesture
+        return getattr(hg, "force_sensing_supported", False) if hg else False
+
+    @property
+    def force_sensing_range(self):
+        hg = self.hook._hid_gesture
+        return getattr(hg, "force_sensing_range", None) if hg else None
+
+    def set_force_sensitivity(self, value):
+        """Send force sensitivity to the mouse and persist to config."""
+        value = int(value)
+        settings = self.cfg.setdefault("settings", {})
+        settings["force_sensitivity"] = value
+        save_config(self.cfg)
+        hg = self.hook._hid_gesture
+        if hg:
+            return hg.set_force_sensing(value)
+        print("[Engine] No HID++ connection -- force sensitivity not applied")
         return False
 
     def play_haptic_waveform(self, waveform_id=0):

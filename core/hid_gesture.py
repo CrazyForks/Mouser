@@ -23,6 +23,7 @@ from dataclasses import replace as _dataclass_replace
 
 from core.logi_devices import (
     DEFAULT_GESTURE_CIDS,
+    _coerce_cid,
     build_connected_device_info,
     clamp_dpi,
     resolve_device,
@@ -884,18 +885,6 @@ def _format_cid(cid):
     return f"0x{cid:04X} ({name})" if name else f"0x{cid:04X}"
 
 
-def _coerce_int_cid(value) -> int | None:
-    """Normalize a CID value (``int``, ``"0x01A0"`` hex string, ``None``) to
-    ``int | None``. Fail-closed: malformed inputs resolve to ``None`` so the
-    caller never falls into divert paths with garbage values.
-    """
-    if value in (None, ""):
-        return None
-    try:
-        return int(value, 0) if isinstance(value, str) else int(value)
-    except (TypeError, ValueError):
-        return None
-
 
 def _control_present(controls, cid: int) -> bool:
     """True when ``cid`` appears in the live REPROG_V4 ``controls`` dump.
@@ -909,7 +898,7 @@ def _control_present(controls, cid: int) -> bool:
     for control in controls:
         if not isinstance(control, dict):
             continue
-        if _coerce_int_cid(control.get("cid")) == cid:
+        if _coerce_cid(control.get("cid")) == cid:
             return True
     return False
 
@@ -966,6 +955,7 @@ class HidGestureListener:
         self._held      = False
         self._connected = False         # True while HID++ device is open
         self._rawxy_enabled = False
+        self._extra_held_during_gesture = False
         # CIDs requiring button-only divert (0x03) instead of the default
         # rawXY-enabled divert (0x33); currently the device's thumb_button
         # CID so it stays usable on the fallback path without freezing
@@ -973,6 +963,7 @@ class HidGestureListener:
         self._button_only_cids: set[int] = set()
         self._pending_dpi = None        # set by set_dpi(), applied in loop
         self._dpi_result  = None        # True/False after apply
+        self._dpi_event   = threading.Event()
         self._smart_shift_idx = None      # feature index of SMART_SHIFT / SMART_SHIFT_ENHANCED
         self._smart_shift_enhanced = False  # True → use fn 1/2; False → fn 0/1
         self._wheel_feature_indexes = {}
@@ -984,6 +975,7 @@ class HidGestureListener:
         self._reconnect_requested = False
         self._pending_battery = None
         self._battery_result = None
+        self._battery_event = threading.Event()
         self._last_logged_battery = None
         self._connected_device_info = None
         self._last_controls = []   # REPROG_V4 controls from last connection
@@ -1007,7 +999,12 @@ class HidGestureListener:
         self._force_sensing_idx = None      # feature index of FORCE_SENSING (0x19C0)
         self._pending_haptic = None
         self._haptic_result = None
+        self._haptic_event = threading.Event()
         self._haptic_capabilities = None    # raw bytes from getCapabilities
+        self._pending_force_sensing = None
+        self._force_sensing_result = None
+        self._force_sensing_event = threading.Event()
+        self._force_sensing_range = None    # (min_val, max_val, default_val) after probe
 
     # ── public API ────────────────────────────────────────────────
 
@@ -1572,7 +1569,7 @@ class HidGestureListener:
         ):
             self._extra_diverts.pop(self._thumb_button_cid, None)
         self._thumb_button_cid = None
-        cid = _coerce_int_cid(getattr(device_spec, "thumb_button_cid", None))
+        cid = _coerce_cid(getattr(device_spec, "thumb_button_cid", None))
         if cid is None:
             return
         if cid == self._gesture_cid:
@@ -1624,6 +1621,10 @@ class HidGestureListener:
         """
         cid = self._thumb_button_cid
         return cid is not None and cid in self._extra_divert_acks
+
+    @property
+    def extra_held_during_gesture(self) -> bool:
+        return self._extra_held_during_gesture
 
     def _divert_extras(self):
         """Divert additional CIDs (e.g. mode shift) without raw XY.
@@ -1686,18 +1687,16 @@ class HidGestureListener:
                 f"revert failed: {exc}"
             )
         self._rawxy_enabled = False
-        # Best-effort revert; mid-disconnect failures are harmless because
-        # firmware auto-reverts on power cycle anyway, but we still log so
-        # a stuck divert across a normal disconnect is observable.
-        try:
-            self._set_native_wheel_invert_vertical(False)
-        except Exception as exc:  # noqa: BLE001 - teardown must complete
-            print(f"[HidGesture] _undivert: vertical invert revert failed: {exc}")
-        try:
-            self._set_native_wheel_invert_horizontal(False)
-        except Exception as exc:  # noqa: BLE001 - teardown must complete
-            print(f"[HidGesture] _undivert: horizontal invert revert failed: {exc}")
-        self._wheel_divert_state = False
+        if self._wheel_divert_state:
+            try:
+                self._set_native_wheel_invert_vertical(False)
+            except Exception as exc:  # noqa: BLE001 - teardown must complete
+                print(f"[HidGesture] _undivert: vertical invert revert failed: {exc}")
+            try:
+                self._set_native_wheel_invert_horizontal(False)
+            except Exception as exc:  # noqa: BLE001 - teardown must complete
+                print(f"[HidGesture] _undivert: horizontal invert revert failed: {exc}")
+            self._wheel_divert_state = False
 
     # ── DPI control ───────────────────────────────────────────────
 
@@ -1706,14 +1705,13 @@ class HidGestureListener:
         Can be called from any thread.  Returns True on success."""
         dpi = clamp_dpi(dpi_value, self._connected_device_info)
         self._dpi_result = None
+        self._dpi_event.clear()
         self._pending_dpi = dpi
-        # Wait up to 3s for the listener thread to apply it
-        for _ in range(30):
-            if self._pending_dpi is None:
-                return self._dpi_result is True
-            time.sleep(0.1)
-        print("[HidGesture] DPI set timed out")
-        return False
+        if not self._dpi_event.wait(3.0):
+            print("[HidGesture] DPI set timed out")
+            self._pending_dpi = None
+            return False
+        return self._dpi_result is True
 
     def _apply_pending_dpi(self):
         """Called from the listener thread to actually send DPI."""
@@ -1724,6 +1722,7 @@ class HidGestureListener:
             print("[HidGesture] Cannot set DPI -- not connected")
             self._dpi_result = False
             self._pending_dpi = None
+            self._dpi_event.set()
             return
         hi = (dpi >> 8) & 0xFF
         lo = dpi & 0xFF
@@ -1739,25 +1738,26 @@ class HidGestureListener:
             print("[HidGesture] DPI set FAILED")
             self._dpi_result = False
         self._pending_dpi = None
+        self._dpi_event.set()
 
     def read_dpi(self):
         """Queue a DPI read -- will be applied on the listener thread.
         Can be called from any thread.  Returns the DPI value or None."""
         self._dpi_result = None
-        self._pending_dpi = "read"  # special sentinel
-        for _ in range(30):
-            if self._pending_dpi is None:
-                return self._dpi_result
-            time.sleep(0.1)
-        print("[HidGesture] DPI read timed out")
-        self._pending_dpi = None
-        return None
+        self._dpi_event.clear()
+        self._pending_dpi = "read"
+        if not self._dpi_event.wait(3.0):
+            print("[HidGesture] DPI read timed out")
+            self._pending_dpi = None
+            return None
+        return self._dpi_result
 
     def _apply_pending_read_dpi(self):
         """Called from the listener thread to read current DPI."""
         if self._dpi_idx is None or self._dev is None:
             self._dpi_result = None
             self._pending_dpi = None
+            self._dpi_event.set()
             return
         # getSensorDpi: function 2, params [sensorIdx=0]
         resp = self._request(self._dpi_idx, 2, [0x00])
@@ -1770,6 +1770,7 @@ class HidGestureListener:
             print("[HidGesture] DPI read FAILED")
             self._dpi_result = None
         self._pending_dpi = None
+        self._dpi_event.set()
 
     # ── Smart Shift control ─────────────────────────────────────
 
@@ -1962,12 +1963,13 @@ class HidGestureListener:
         if self._dev is None:
             return False
         target_mode = self._WHEEL_MODE_BIT_INVERT if invert else 0x00
-        current_resp = self._request(self._hires_wheel_idx, 1, [])
-        if current_resp is not None:
-            _, _, _, _, params = current_resp
-            current_mode = int(params[0]) & 0xFF if params else None
-            if current_mode == target_mode:
-                return True
+        if invert:
+            current_resp = self._request(self._hires_wheel_idx, 1, [])
+            if current_resp is not None:
+                _, _, _, _, params = current_resp
+                current_mode = int(params[0]) & 0xFF if params else None
+                if current_mode == target_mode:
+                    return True
         resp = self._request(self._hires_wheel_idx, 2, [target_mode])
         return resp is not None
 
@@ -2130,42 +2132,114 @@ class HidGestureListener:
     def force_sensing_detected(self):
         return self._force_sensing_idx is not None
 
+    @property
+    def force_sensing_supported(self):
+        return self._force_sensing_idx is not None and self._force_sensing_range is not None
+
+    @property
+    def force_sensing_range(self):
+        return self._force_sensing_range
+
+    def get_force_sensing(self):
+        """Queue a force sensing read. Returns current value (int) or None."""
+        self._force_sensing_result = None
+        self._force_sensing_event.clear()
+        self._pending_force_sensing = "read"
+        if not self._force_sensing_event.wait(3.0):
+            print("[HidGesture] Force sensing read timed out")
+            self._pending_force_sensing = None
+            return None
+        return self._force_sensing_result
+
+    def set_force_sensing(self, value):
+        """Queue a force sensing level change. Returns True on success."""
+        rng = self._force_sensing_range
+        if rng:
+            value = max(rng[0], min(rng[1], int(value)))
+        else:
+            value = int(value)
+        self._force_sensing_result = None
+        self._force_sensing_event.clear()
+        self._pending_force_sensing = ("set", value)
+        if not self._force_sensing_event.wait(3.0):
+            print("[HidGesture] Force sensing set timed out")
+            self._pending_force_sensing = None
+            return False
+        return self._force_sensing_result is True
+
+    def _apply_pending_force_sensing(self):
+        """Process queued force sensing commands on the listener thread."""
+        import struct as _struct
+        cmd = self._pending_force_sensing
+        if cmd is None:
+            return
+        if self._force_sensing_idx is None or self._dev is None:
+            print("[HidGesture] Cannot process force sensing -- not connected or unsupported")
+            self._force_sensing_result = None if isinstance(cmd, str) else False
+            self._pending_force_sensing = None
+            self._force_sensing_event.set()
+            return
+
+        try:
+            if cmd == "read":
+                resp = self._request(self._force_sensing_idx, 2, [0])
+                if resp:
+                    _, _, _, _, p = resp
+                    current = _struct.unpack("!H", bytes(p[:2]))[0]
+                    self._force_sensing_result = current
+                    print(f"[HidGesture] Force sensing current: {current}")
+                else:
+                    self._force_sensing_result = None
+                    print("[HidGesture] Force sensing read FAILED")
+            elif isinstance(cmd, tuple) and cmd[0] == "set":
+                value = cmd[1]
+                payload = list(_struct.pack("!BH", 0, value))
+                resp = self._request(self._force_sensing_idx, 3, payload)
+                self._force_sensing_result = resp is not None
+                print(f"[HidGesture] Force sensing set value={value}: "
+                      f"{'OK' if self._force_sensing_result else 'FAILED'}")
+            else:
+                print(f"[HidGesture] Unknown force sensing command: {cmd}")
+                self._force_sensing_result = False
+        except Exception as exc:
+            print(f"[HidGesture] Force sensing command error: {exc}")
+            self._force_sensing_result = False
+        self._pending_force_sensing = None
+        self._force_sensing_event.set()
+
     def get_haptic_state(self):
         """Queue a haptic state read.  Returns dict or None."""
         self._haptic_result = None
+        self._haptic_event.clear()
         self._pending_haptic = "read_state"
-        for _ in range(30):
-            if self._pending_haptic is None:
-                return self._haptic_result
-            time.sleep(0.1)
-        print("[HidGesture] Haptic state read timed out")
-        self._pending_haptic = None
-        return None
+        if not self._haptic_event.wait(3.0):
+            print("[HidGesture] Haptic state read timed out")
+            self._pending_haptic = None
+            return None
+        return self._haptic_result
 
     def set_haptic_level(self, level):
         """Queue a haptic level change (0-3).  Returns True on success."""
         level = max(0, min(3, int(level)))
         self._haptic_result = None
+        self._haptic_event.clear()
         self._pending_haptic = ("set_level", level)
-        for _ in range(30):
-            if self._pending_haptic is None:
-                return self._haptic_result is True
-            time.sleep(0.1)
-        print("[HidGesture] Haptic set level timed out")
-        self._pending_haptic = None
-        return False
+        if not self._haptic_event.wait(3.0):
+            print("[HidGesture] Haptic set level timed out")
+            self._pending_haptic = None
+            return False
+        return self._haptic_result is True
 
     def play_haptic_waveform(self, waveform_id=0):
         """Queue a haptic waveform play command.  Returns True on success."""
         self._haptic_result = None
+        self._haptic_event.clear()
         self._pending_haptic = ("play", int(waveform_id))
-        for _ in range(30):
-            if self._pending_haptic is None:
-                return self._haptic_result is True
-            time.sleep(0.1)
-        print("[HidGesture] Haptic play timed out")
-        self._pending_haptic = None
-        return False
+        if not self._haptic_event.wait(3.0):
+            print("[HidGesture] Haptic play timed out")
+            self._pending_haptic = None
+            return False
+        return self._haptic_result is True
 
     def queue_haptic_waveform(self, waveform_id=0):
         """Set the pending haptic command without blocking.
@@ -2186,6 +2260,7 @@ class HidGestureListener:
             print("[HidGesture] Cannot process haptic -- not connected or unsupported")
             self._haptic_result = None if isinstance(cmd, str) else False
             self._pending_haptic = None
+            self._haptic_event.set()
             return
 
         try:
@@ -2245,24 +2320,25 @@ class HidGestureListener:
             print(f"[HidGesture] Haptic command error: {exc}")
             self._haptic_result = False
         self._pending_haptic = None
+        self._haptic_event.set()
 
     def read_battery(self):
         """Queue a battery read and wait for the listener thread result."""
         self._battery_result = None
+        self._battery_event.clear()
         self._pending_battery = "read"
-        for _ in range(30):
-            if self._pending_battery is None:
-                return self._battery_result
-            time.sleep(0.1)
-        print("[HidGesture] Battery read timed out")
-        self._pending_battery = None
-        return None
+        if not self._battery_event.wait(3.0):
+            print("[HidGesture] Battery read timed out")
+            self._pending_battery = None
+            return None
+        return self._battery_result
 
     def _apply_pending_read_battery(self):
         """Called from the listener thread to read current battery level."""
         if self._battery_idx is None or self._dev is None:
             self._battery_result = None
             self._pending_battery = None
+            self._battery_event.set()
             return
 
         if self._battery_feature_id == FEAT_UNIFIED_BATT:
@@ -2295,23 +2371,30 @@ class HidGestureListener:
                 self._battery_result = None
 
         self._pending_battery = None
+        self._battery_event.set()
 
     # ── notification handling ─────────────────────────────────────
 
     @staticmethod
     def _decode_s16(hi, lo):
-        value = (hi << 8) | lo
-        if value & 0x8000:
-            value -= 0x10000
-        return value
-
-    @staticmethod
-    def _decode_s16_be(hi, lo):
-        """Big-endian signed-16 decode for 0x2121 / 0x2150 notifications."""
         value = ((hi & 0xFF) << 8) | (lo & 0xFF)
         if value & 0x8000:
             value -= 0x10000
         return value
+
+    def _drain_pending_requests(self):
+        """Abort all pending HID++ requests, unblocking waiting threads."""
+        self._pending_battery = None
+        self._battery_event.set()
+        self._pending_dpi = None
+        self._dpi_result = None
+        self._dpi_event.set()
+        self._abort_pending_smart_shift()
+        self._abort_pending_wheel_divert()
+        self._pending_haptic = None
+        self._haptic_event.set()
+        self._pending_force_sensing = None
+        self._force_sensing_event.set()
 
     def _force_release_stale_holds(self):
         """Synthesize UP events for any buttons stuck in the held state.
@@ -2352,7 +2435,9 @@ class HidGestureListener:
         if func == 1:
             if not self._rawxy_enabled:
                 return
-            if len(params) < 4 or not self._held:
+            if not self._held:
+                return
+            if len(params) < 4:
                 return
             dx = self._decode_s16(params[0], params[1])
             dy = self._decode_s16(params[2], params[3])
@@ -2380,6 +2465,7 @@ class HidGestureListener:
 
         if gesture_now and not self._held:
             self._held = True
+            self._extra_held_during_gesture = False
             print("[HidGesture] Gesture DOWN")
             if self._on_down:
                 try:
@@ -2396,11 +2482,12 @@ class HidGestureListener:
                 except Exception as e:
                     print(f"[HidGesture] up callback error: {e}")
 
-        # Check extra diverted CIDs (e.g. mode shift)
         for cid, info in self._extra_diverts.items():
             btn_now = cid in cids
             if btn_now and not info["held"]:
                 info["held"] = True
+                if self._held:
+                    self._extra_held_during_gesture = True
                 print(f"[HidGesture] Extra {_format_cid(cid)} DOWN")
                 cb = info.get("on_down")
                 if cb:
@@ -2493,6 +2580,7 @@ class HidGestureListener:
             self._battery_feature_id = None
             self._haptic_idx = None
             self._force_sensing_idx = None
+            self._force_sensing_range = None
             self._haptic_capabilities = None
             self._wheel_feature_indexes = {}
             self._gesture_cid = DEFAULT_GESTURE_CID
@@ -2690,13 +2778,44 @@ class HidGestureListener:
                         except Exception as exc:
                             print(f"[HidGesture] Haptic capabilities probe "
                                   f"failed: {exc}")
-                    # Force Sensing Button (MX Master 4, placeholder)
+                    # Force Sensing Button (MX Master 4)
                     fs_fi = self._find_feature(FEAT_FORCE_SENSING)
                     if fs_fi:
                         self._force_sensing_idx = fs_fi
-                        print(f"[HidGesture] Found FORCE_SENSING @0x{fs_fi:02X} "
-                              f"(detected but not configurable)")
-                    hw_fi = self._find_feature(FEAT_HIRES_WHEEL_ENHANCED)
+                        try:
+                            import struct as _struct
+                            count_resp = self._request(fs_fi, 0, [])
+                            if count_resp:
+                                _, _, _, _, cp = count_resp
+                                fs_count = cp[0] if cp else 0
+                                if fs_count >= 1:
+                                    cfg_resp = self._request(fs_fi, 1, [0])
+                                    cur_resp = self._request(fs_fi, 2, [0])
+                                    if cfg_resp and cur_resp:
+                                        _, _, _, _, cfg_p = cfg_resp
+                                        changeable = _struct.unpack("!H", bytes(cfg_p[:2]))[0] & 0x01
+                                        default_val = _struct.unpack("!H", bytes(cfg_p[2:4]))[0]
+                                        max_val = _struct.unpack("!H", bytes(cfg_p[4:6]))[0]
+                                        min_val = _struct.unpack("!H", bytes(cfg_p[6:8]))[0]
+                                        _, _, _, _, cur_p = cur_resp
+                                        current = _struct.unpack("!H", bytes(cur_p[:2]))[0]
+                                        self._force_sensing_range = (min_val, max_val, default_val, current)
+                                        print(f"[HidGesture] Found FORCE_SENSING @0x{fs_fi:02X} "
+                                              f"count={fs_count} changeable={changeable} "
+                                              f"min={min_val} max={max_val} default={default_val} "
+                                              f"current={current}")
+                                    else:
+                                        print(f"[HidGesture] Found FORCE_SENSING @0x{fs_fi:02X} "
+                                              f"(probe failed)")
+                                else:
+                                    print(f"[HidGesture] Found FORCE_SENSING @0x{fs_fi:02X} "
+                                          f"(no buttons)")
+                            else:
+                                print(f"[HidGesture] Found FORCE_SENSING @0x{fs_fi:02X} "
+                                      f"(count query failed)")
+                        except Exception as exc:
+                            print(f"[HidGesture] FORCE_SENSING probe failed: {exc}")
+                    hw_fi = self._wheel_feature_indexes.get(FEAT_HIRES_WHEEL_ENHANCED)
                     if hw_fi:
                         self._hires_wheel_idx = hw_fi
                         cap = self._request(hw_fi, 0, [])
@@ -2707,21 +2826,21 @@ class HidGestureListener:
                                 int(mul) if mul not in (None, 0) else None
                             )
                         print(
-                            f"[HidGesture] Found HIRES_WHEEL_ENHANCED @0x{hw_fi:02X} "
+                            f"[HidGesture] HIRES_WHEEL_ENHANCED @0x{hw_fi:02X} "
                             f"mul={self._hires_wheel_multiplier}"
                         )
-                    tw_fi = self._find_feature(FEAT_THUMB_WHEEL)
+                    tw_fi = self._wheel_feature_indexes.get(FEAT_THUMB_WHEEL)
                     if tw_fi:
                         self._thumbwheel_idx = tw_fi
-                        info = self._request(tw_fi, 0, [])
-                        if info:
-                            _, _, _, _, p = info
+                        tw_info = self._request(tw_fi, 0, [])
+                        if tw_info:
+                            _, _, _, _, p = tw_info
                             if len(p) >= 4:
                                 self._thumbwheel_multiplier = (
                                     (p[2] << 8) | p[3]
                                 ) or None
                         print(
-                            f"[HidGesture] Found THUMB_WHEEL @0x{tw_fi:02X} "
+                            f"[HidGesture] THUMB_WHEEL @0x{tw_fi:02X} "
                             f"divertedRes={self._thumbwheel_multiplier}"
                         )
                     if self._divert():
@@ -2830,19 +2949,56 @@ class HidGestureListener:
             _no_data_count = 0          # consecutive _rx() returning None
             _STALE_HOLD_LIMIT = 3       # force-release held buttons after this many empty reads (~3 s)
             _CONSECUTIVE_TIMEOUT_RECONNECT = 3  # force reconnect after this many request timeouts
+            _SLEEP_TIMEOUT_S = 300      # abandon handle after 5 min asleep
             self._consecutive_request_timeouts = 0
+            _device_asleep = False
+            _device_sleep_time = None
             try:
                 while self._running:
                     if self._reconnect_requested:
                         self._reconnect_requested = False
                         raise IOError("reconnect requested")
-                    # If too many consecutive HID++ requests timed out, the
-                    # device likely went to sleep or power-cycled.  Force a
-                    # full reconnect so button diverts are re-applied.
+
                     if self._consecutive_request_timeouts >= _CONSECUTIVE_TIMEOUT_RECONNECT:
-                        print(f"[HidGesture] {self._consecutive_request_timeouts} consecutive "
-                              f"request timeouts -- forcing reconnect")
-                        raise IOError("consecutive request timeouts -- device likely asleep")
+                        if not _device_asleep:
+                            _device_asleep = True
+                            _device_sleep_time = time.monotonic()
+                            print("[HidGesture] Device appears asleep "
+                                  "— suppressing requests, listening for wake")
+                            self._force_release_stale_holds()
+                            self._drain_pending_requests()
+                            self._consecutive_request_timeouts = 0
+                            if self._connected:
+                                self._connected = False
+                                if self._on_disconnect:
+                                    try:
+                                        self._on_disconnect()
+                                    except Exception:
+                                        pass
+
+                    if _device_asleep:
+                        if (time.monotonic() - _device_sleep_time
+                                >= _SLEEP_TIMEOUT_S):
+                            print("[HidGesture] Sleep timeout "
+                                  "— falling back to full reconnect")
+                            raise IOError("sleep timeout — device may be gone")
+                        self._drain_pending_requests()
+                        raw = self._rx(1000)
+                        if raw:
+                            _device_asleep = False
+                            _device_sleep_time = None
+                            _no_data_count = 0
+                            self._consecutive_request_timeouts = 0
+                            self._connected = True
+                            if self._on_connect:
+                                try:
+                                    self._on_connect()
+                                except Exception:
+                                    pass
+                            print("[HidGesture] Device woke from sleep")
+                            self._on_report(raw)
+                        continue
+
                     # Apply any queued DPI command
                     if self._pending_dpi is not None:
                         if self._pending_dpi == "read":
@@ -2857,6 +3013,8 @@ class HidGestureListener:
                         self._apply_pending_read_battery()
                     if self._pending_haptic is not None:
                         self._apply_pending_haptic()
+                    if self._pending_force_sensing is not None:
+                        self._apply_pending_force_sensing()
                     raw = self._rx(1000)
                     if raw:
                         _no_data_count = 0
@@ -2884,11 +3042,7 @@ class HidGestureListener:
             self._battery_idx = None
             self._battery_feature_id = None
             self._wheel_feature_indexes = {}
-            self._pending_battery = None
-            self._pending_dpi = None
-            self._dpi_result = None
-            self._abort_pending_smart_shift()
-            self._abort_pending_wheel_divert()
+            self._drain_pending_requests()
             self._hires_wheel_idx = None
             self._hires_wheel_multiplier = None
             self._thumbwheel_idx = None
@@ -2898,8 +3052,8 @@ class HidGestureListener:
             self._consecutive_request_timeouts = 0
             self._haptic_idx = None
             self._force_sensing_idx = None
+            self._force_sensing_range = None
             self._haptic_capabilities = None
-            self._pending_haptic = None
             if self._held:
                 self._held = False
                 print("[HidGesture] Gesture force-released on disconnect")

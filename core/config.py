@@ -21,7 +21,6 @@ elif sys.platform == "linux":
 else:
     CONFIG_DIR = os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "Mouser")
 CONFIG_FILE = os.path.join(CONFIG_DIR, "config.json")
-DEVICE_CACHE_FILE = os.path.join(CONFIG_DIR, "device_cache.json")
 
 # Which mouse events map to which friendly button names
 # Order matches the Logi Options+ diagram (top view then side view)
@@ -102,7 +101,7 @@ BUTTON_TO_EVENTS = {
 }
 
 DEFAULT_CONFIG = {
-    "version": 15,
+    "version": 16,
     "active_profile": "default",
     "profiles": {
         "default": {
@@ -154,6 +153,7 @@ DEFAULT_CONFIG = {
         "wheel_divert": WHEEL_DIVERT_DEFAULT,
         "check_for_updates": True,
         "update_check_state": {},
+        "force_sensitivity": None,
     },
 }
 
@@ -244,20 +244,6 @@ def save_config(cfg):
     """Persist config to disk via atomic write with restrictive permissions."""
     _atomic_write_json(CONFIG_FILE, cfg)
 
-
-def load_device_cache():
-    """Return the last-good HID++ device identity dict, or None."""
-    try:
-        with open(DEVICE_CACHE_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-    except (OSError, ValueError):
-        return None
-    return data if isinstance(data, dict) else None
-
-
-def save_device_cache(identity):
-    """Persist the last-good HID++ device identity (atomic write)."""
-    _atomic_write_json(DEVICE_CACHE_FILE, identity)
 
 
 def get_active_mappings(cfg):
@@ -548,6 +534,11 @@ def _migrate(cfg):
         s.setdefault("haptic_dedup", True)
         cfg["version"] = 15
 
+    if version < 16:
+        # v15 -> v16: add force sensing button sensitivity (None = device default).
+        cfg.setdefault("settings", {}).setdefault("force_sensitivity", None)
+        cfg["version"] = 16
+
     cfg.setdefault("settings", {})
     cfg["settings"].setdefault("appearance_mode", "system")
     cfg["settings"].setdefault("debug_mode", False)
@@ -595,6 +586,8 @@ def _validate_types(cfg, defaults, path=""):
     """Reset values whose type doesn't match the defaults template."""
     for key, default_val in defaults.items():
         if key not in cfg:
+            continue
+        if default_val is None:
             continue
         if isinstance(default_val, dict):
             if isinstance(cfg[key], dict):

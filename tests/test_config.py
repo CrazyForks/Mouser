@@ -44,7 +44,7 @@ class ConfigMigrationTests(unittest.TestCase):
 
         migrated = config._migrate(legacy)
 
-        self.assertEqual(migrated["version"], 15)
+        self.assertEqual(migrated["version"], 16)
         self.assertEqual(migrated["profiles"]["default"]["apps"], [])
         self.assertFalse(migrated["settings"]["invert_hscroll"])
         self.assertFalse(migrated["settings"]["invert_vscroll"])
@@ -93,7 +93,7 @@ class ConfigMigrationTests(unittest.TestCase):
 
         migrated = config._migrate(cfg)
 
-        self.assertEqual(migrated["version"], 15)
+        self.assertEqual(migrated["version"], 16)
         self.assertEqual(
             migrated["profiles"]["media"]["apps"],
             ["Microsoft.Media.Player.exe", "VLC.exe"],
@@ -167,7 +167,7 @@ class ConfigMigrationTests(unittest.TestCase):
             ):
                 loaded = config.load_config()
 
-        self.assertEqual(loaded["version"], 15)
+        self.assertEqual(loaded["version"], 16)
         self.assertEqual(loaded["settings"]["dpi"], 800)
         self.assertEqual(loaded["settings"]["action_haptic"], [])
         self.assertTrue(loaded["settings"]["haptic_enabled"])
@@ -200,7 +200,7 @@ class ConfigMigrationTests(unittest.TestCase):
 
         migrated = config._migrate(legacy)
 
-        self.assertEqual(migrated["version"], 15)
+        self.assertEqual(migrated["version"], 16)
         self.assertTrue(migrated["settings"]["start_at_login"])
         self.assertEqual(
             migrated["profiles"]["default"]["mappings"]["mode_shift"],
@@ -226,7 +226,7 @@ class ConfigMigrationTests(unittest.TestCase):
 
         migrated = config._migrate(v8_cfg)
 
-        self.assertEqual(migrated["version"], 15)
+        self.assertEqual(migrated["version"], 16)
         self.assertEqual(
             migrated["profiles"]["default"]["mappings"]["actions_ring"], "none"
         )
@@ -249,7 +249,7 @@ class ConfigMigrationTests(unittest.TestCase):
 
         migrated = config._migrate(v9_cfg)
 
-        self.assertEqual(migrated["version"], 15)
+        self.assertEqual(migrated["version"], 16)
         self.assertEqual(migrated["settings"]["gesture_commit_window_ms"], 400)
         self.assertEqual(migrated["settings"]["gesture_settle_ms"], 90)
         self.assertEqual(migrated["settings"]["gesture_cross_ratio"], 0.5)
@@ -275,7 +275,7 @@ class ConfigMigrationTests(unittest.TestCase):
 
         migrated = config._migrate(v10_cfg)
 
-        self.assertEqual(migrated["version"], 15)
+        self.assertEqual(migrated["version"], 16)
         self.assertEqual(migrated["profiles"]["default"]["button_haptic"], {})
         self.assertEqual(migrated["profiles"]["work"]["button_haptic"], {})
 
@@ -295,7 +295,7 @@ class ConfigMigrationTests(unittest.TestCase):
 
         migrated = config._migrate(v12_cfg)
 
-        self.assertEqual(migrated["version"], 15)
+        self.assertEqual(migrated["version"], 16)
         self.assertEqual(migrated["settings"]["action_haptic"], [])
         # existing haptic settings preserved
         self.assertTrue(migrated["settings"]["haptic_enabled"])
@@ -346,7 +346,7 @@ class ConfigMigrationTests(unittest.TestCase):
 
         migrated = config._migrate(v13_cfg)
 
-        self.assertEqual(migrated["version"], 15)
+        self.assertEqual(migrated["version"], 16)
         self.assertEqual(migrated["settings"]["button_haptic"], [])
         self.assertTrue(migrated["settings"]["haptic_dedup"])
         # existing settings preserved

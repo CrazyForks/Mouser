@@ -559,6 +559,10 @@ class HidBoltReceiverTests(unittest.TestCase):
             with (
                 patch.object(listener, "_find_feature", return_value=None),
                 patch("builtins.print"),
+                patch(
+                    "core.hid_gesture._load_last_device_cache",
+                    return_value=None,
+                ),
             ):
                 listener._try_connect()
 
@@ -1117,6 +1121,10 @@ class HidBoltReceiverTests(unittest.TestCase):
                 create=True,
             ),
             patch("builtins.print"),
+            patch(
+                "core.hid_gesture._load_last_device_cache",
+                return_value=None,
+            ),
         ):
             self.assertTrue(listener._try_connect())
 

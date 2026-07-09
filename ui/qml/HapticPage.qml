@@ -209,6 +209,142 @@ Item {
                 }
             }
 
+            Item { width: 1; height: 16; visible: backend.forceSensingSupported }
+
+            // ── Gesture Button Sensitivity Card ─────────────────────
+            Rectangle {
+                id: forceSensingCard
+                visible: backend.forceSensingSupported
+                width: parent.width - 72
+                anchors.horizontalCenter: parent.horizontalCenter
+                height: forceSensingContent.implicitHeight + 40
+                radius: Theme.radius
+                color: hapticPage.theme.bgCard
+                border.width: 1
+                border.color: hapticPage.theme.border
+
+                readonly property var forcePresets: {
+                    var lo = backend.forceSensingMin
+                    var hi = backend.forceSensingMax
+                    return [
+                        { label: s["haptic.force_light"] || "Light",  value: Math.round(lo + (hi - lo) * 0.00) },
+                        { label: s["haptic.force_low"]   || "Low",    value: Math.round(lo + (hi - lo) * 0.33) },
+                        { label: s["haptic.force_medium"]|| "Medium", value: Math.round(lo + (hi - lo) * 0.66) },
+                        { label: s["haptic.force_firm"]  || "Firm",   value: Math.round(lo + (hi - lo) * 1.00) }
+                    ]
+                }
+
+                readonly property int nearestPresetIndex: {
+                    var val = backend.forceSensitivity
+                    var best = 0
+                    var bestDist = Math.abs(val - forcePresets[0].value)
+                    for (var i = 1; i < forcePresets.length; i++) {
+                        var d = Math.abs(val - forcePresets[i].value)
+                        if (d < bestDist) { bestDist = d; best = i }
+                    }
+                    return best
+                }
+
+                Column {
+                    id: forceSensingContent
+                    anchors {
+                        left: parent.left
+                        right: parent.right
+                        top: parent.top
+                        margins: 20
+                    }
+                    spacing: 12
+
+                    Text {
+                        text: s["haptic.force_title"] || "Gesture Button Sensitivity"
+                        font {
+                            family: uiState.fontFamily
+                            pixelSize: 16
+                            bold: true
+                        }
+                        color: hapticPage.theme.textPrimary
+                    }
+
+                    Text {
+                        text: s["haptic.force_desc"] || "Adjust how hard you need to press the gesture button to activate it."
+                        font {
+                            family: uiState.fontFamily
+                            pixelSize: 12
+                        }
+                        color: hapticPage.theme.textSecondary
+                        wrapMode: Text.WordWrap
+                        width: parent.width
+                    }
+
+                    Flow {
+                        width: parent.width
+                        spacing: 8
+
+                        Repeater {
+                            model: forceSensingCard.forcePresets
+
+                            delegate: Rectangle {
+                                required property int index
+                                readonly property var presetData: forceSensingCard.forcePresets[index]
+                                readonly property bool isCurrent: index === forceSensingCard.nearestPresetIndex
+                                width: forcePresetLabel.implicitWidth + 32
+                                height: 36
+                                radius: 10
+                                color: isCurrent
+                                       ? hapticPage.theme.accent
+                                       : forcePresetMa.containsMouse
+                                         ? hapticPage.theme.bgCardHover
+                                         : hapticPage.theme.bgElevated
+                                border.width: 1
+                                border.color: isCurrent
+                                              ? hapticPage.theme.accent
+                                              : hapticPage.theme.border
+
+                                Behavior on color { ColorAnimation { duration: 120 } }
+
+                                Text {
+                                    id: forcePresetLabel
+                                    anchors.centerIn: parent
+                                    text: presetData.label
+                                    font {
+                                        family: uiState.fontFamily
+                                        pixelSize: 13
+                                        bold: isCurrent
+                                    }
+                                    color: isCurrent
+                                           ? hapticPage.theme.bgSidebar
+                                           : hapticPage.theme.textPrimary
+                                }
+
+                                MouseArea {
+                                    id: forcePresetMa
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: backend.setForceSensitivity(presetData.value)
+                                }
+
+                                Accessible.role: Accessible.Button
+                                Accessible.name: presetData.label
+                            }
+                        }
+                    }
+
+                    Text {
+                        visible: backend.forceSensitivity < backend.forceSensingDefault
+                        text: s["haptic.force_warning"] || "A lighter setting may cause accidental activations during normal use."
+                        font {
+                            family: uiState.fontFamily
+                            pixelSize: 11
+                            italic: true
+                        }
+                        color: hapticPage.theme.textSecondary
+                        wrapMode: Text.WordWrap
+                        width: parent.width
+                    }
+                }
+            }
+
             Item { width: 1; height: 16 }
 
             // ── Test Button Card ─────────────────────────────────────

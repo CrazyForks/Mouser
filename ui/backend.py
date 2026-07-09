@@ -225,6 +225,7 @@ class Backend(QObject):
     deviceInfoChanged = Signal()
     deviceLayoutChanged = Signal()
     hapticChanged = Signal()
+    forceSensingChanged = Signal()
     knownAppsChanged = Signal()
     updateAvailable = Signal(str, str)
     updateInstallChanged = Signal()
@@ -647,6 +648,45 @@ class Backend(QObject):
     @Property(bool, notify=hapticChanged)
     def hapticDedup(self):
         return bool(self._cfg.get("settings", {}).get("haptic_dedup", True))
+
+    @Property(bool, notify=hidFeaturesReadyChanged)
+    def forceSensingSupported(self):
+        return self._engine.force_sensing_supported if self._engine else False
+
+    @Property(int, notify=hidFeaturesReadyChanged)
+    def forceSensingMin(self):
+        if self._engine:
+            rng = self._engine.force_sensing_range
+            if rng:
+                return rng[0]
+        return 0
+
+    @Property(int, notify=hidFeaturesReadyChanged)
+    def forceSensingMax(self):
+        if self._engine:
+            rng = self._engine.force_sensing_range
+            if rng:
+                return rng[1]
+        return 100
+
+    @Property(int, notify=hidFeaturesReadyChanged)
+    def forceSensingDefault(self):
+        if self._engine:
+            rng = self._engine.force_sensing_range
+            if rng:
+                return rng[2]
+        return 50
+
+    @Property(int, notify=forceSensingChanged)
+    def forceSensitivity(self):
+        saved = self._cfg.get("settings", {}).get("force_sensitivity")
+        if saved is not None:
+            return int(saved)
+        if self._engine:
+            rng = self._engine.force_sensing_range
+            if rng and len(rng) >= 4:
+                return rng[3]
+        return 50
 
     @Property(bool, notify=settingsChanged)
     def startMinimized(self):
@@ -1574,6 +1614,19 @@ class Backend(QObject):
             self._engine.cfg = self._cfg
         self.hapticChanged.emit()
 
+    @Slot(int)
+    def setForceSensitivity(self, value):
+        value = int(value)
+        self._cfg.setdefault("settings", {})["force_sensitivity"] = value
+        save_config(self._cfg)
+        self.forceSensingChanged.emit()
+        if self._engine:
+            import threading
+            threading.Thread(
+                target=lambda: self._engine.set_force_sensitivity(value),
+                daemon=True, name="SetForceSensitivity"
+            ).start()
+
     @Slot(bool)
     def setInvertVScroll(self, value):
         value = bool(value)
@@ -1990,6 +2043,7 @@ class Backend(QObject):
             self.batteryLevelChanged.emit()
         if self._hid_features_ready != previous_hid_features_ready:
             self.hidFeaturesReadyChanged.emit()
+            self.forceSensingChanged.emit()
         if connected != previous_connected:
             self.mouseConnectedChanged.emit()
             self._append_debug_line(
@@ -2061,6 +2115,7 @@ class Backend(QObject):
         ) if self._engine else False
         if self._hid_features_ready != previous_hid_features_ready:
             self.hidFeaturesReadyChanged.emit()
+            self.forceSensingChanged.emit()
         self._connected_device_refresh_attempts += 1
         self._sync_connected_device_info()
 

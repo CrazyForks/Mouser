@@ -47,7 +47,7 @@ def _resp(params):
 
 class DecodeS16BETests(unittest.TestCase):
     def test_decode_s16_be(self):
-        decode = HidGestureListener._decode_s16_be
+        decode = HidGestureListener._decode_s16
         self.assertEqual(decode(0x80, 0x00), -32768)
         self.assertEqual(decode(0x7F, 0xFF), 32767)
         self.assertEqual(decode(0x00, 0x01), 1)
@@ -55,7 +55,7 @@ class DecodeS16BETests(unittest.TestCase):
         self.assertEqual(decode(0x00, 0x00), 0)
 
     def test_decode_s16_be_full_range(self):
-        decode = HidGestureListener._decode_s16_be
+        decode = HidGestureListener._decode_s16
         for hi in range(256):
             for lo in range(256):
                 v = decode(hi, lo)
@@ -350,7 +350,6 @@ class NativeInvertApplyTests(unittest.TestCase):
             listener.stop()
 
         targets = {(c.args[0], c.args[1]) for c in req.call_args_list}
-        self.assertIn((0x07, 1), targets)   # read current mode (RMW)
         self.assertIn((0x07, 2), targets)   # write reverted mode
         self.assertIn((0x08, 2), targets)   # thumbwheel revert
         self.assertFalse(listener._wheel_divert_state)

@@ -36,7 +36,6 @@ class BaseMouseHook:
         self._connection_change_cb = None
         self.divert_mode_shift = False
         self.divert_dpi_switch = False
-        self.divert_actions_ring = False
         self.wheel_native_invert_active = False
         self._gesture_direction_enabled = False
         self._gesture_recognizer = GestureRecognizer(
@@ -236,11 +235,6 @@ class BaseMouseHook:
                 "on_down": self._on_hid_dpi_switch_down,
                 "on_up": self._on_hid_dpi_switch_up,
             }
-        if self.divert_actions_ring:
-            extra[0x01A0] = {
-                "on_down": self._on_hid_actions_ring_down,
-                "on_up": self._on_hid_actions_ring_up,
-            }
         return extra
 
     def _start_hid_listener(self):
@@ -295,6 +289,9 @@ class BaseMouseHook:
             return
         self._gesture_active = False
         was_click = self._gesture_recognizer.end()
+        hg = self._hid_gesture
+        if was_click and hg and getattr(hg, "extra_held_during_gesture", False):
+            was_click = False
         self._log_gesture_summary()
         self._emit_debug(
             f"HID gesture button up click_candidate={str(was_click).lower()}"
