@@ -443,7 +443,7 @@ Item {
     function gestureSummary() {
         if (!backend.supportsGestureDirections)
             return actionFor("gesture")
-        if (!hasGestureSwipeAction)
+        if (gestureTapActionId === "activate_actions_ring" || !hasGestureSwipeAction)
             return (s["mouse.tap"] || "Tap: ") + lm.trAction(gestureTapActionLabel)
         return (s["mouse.tap"] || "Tap: ") + lm.trAction(gestureTapActionLabel) + " | " + (s["mouse.swipes_configured"] || "Swipes configured")
     }
@@ -1293,6 +1293,7 @@ Item {
                                     Repeater {
                                         model: backend.allActions
                                         delegate: ActionChip {
+                                            visible: modelData.id !== "activate_actions_ring"
                                             actionId: modelData.id
                                             actionLabel: modelData.id === "__custom__" && isCustomAction(hscrollLeftActionId)
                                                          ? customLabel(hscrollLeftActionId)
@@ -1326,6 +1327,7 @@ Item {
                                     Repeater {
                                         model: backend.allActions
                                         delegate: ActionChip {
+                                            visible: modelData.id !== "activate_actions_ring"
                                             actionId: modelData.id
                                             actionLabel: modelData.id === "__custom__" && isCustomAction(hscrollRightActionId)
                                                          ? customLabel(hscrollRightActionId)
@@ -1382,12 +1384,14 @@ Item {
                                 }
 
                                 Rectangle {
+                                    visible: gestureTapActionId !== "activate_actions_ring"
                                     width: parent.width
                                     height: 1
                                     color: theme.border
                                 }
 
                                 Row {
+                                    visible: gestureTapActionId !== "activate_actions_ring"
                                     width: parent.width
                                     spacing: 12
 
@@ -1410,6 +1414,7 @@ Item {
 
                                 WheelSafeSlider {
                                     id: gestureThresholdSlider
+                                    visible: gestureTapActionId !== "activate_actions_ring"
                                     width: parent.width
                                     from: 20
                                     to: 400
@@ -1437,6 +1442,7 @@ Item {
                                 }
 
                                 Text {
+                                    visible: gestureTapActionId !== "activate_actions_ring"
                                     text: s["mouse.swipe_actions"]
                                     font { family: uiState.fontFamily; pixelSize: 11;
                                            capitalization: Font.AllUppercase; letterSpacing: 1 }
@@ -1444,6 +1450,7 @@ Item {
                                 }
 
                                 RowLayout {
+                                    visible: gestureTapActionId !== "activate_actions_ring"
                                     width: parent.width
                                     spacing: 12
 
@@ -1478,6 +1485,7 @@ Item {
                                 }
 
                                 RowLayout {
+                                    visible: gestureTapActionId !== "activate_actions_ring"
                                     width: parent.width
                                     spacing: 12
 
@@ -1512,6 +1520,7 @@ Item {
                                 }
 
                                 RowLayout {
+                                    visible: gestureTapActionId !== "activate_actions_ring"
                                     width: parent.width
                                     spacing: 12
 
@@ -1546,6 +1555,7 @@ Item {
                                 }
 
                                 RowLayout {
+                                    visible: gestureTapActionId !== "activate_actions_ring"
                                     width: parent.width
                                     spacing: 12
 

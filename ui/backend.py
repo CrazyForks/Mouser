@@ -243,6 +243,8 @@ class Backend(QObject):
     _updateCheckFinishedRequest = Signal(bool, bool, object)
     _updateInstallStateRequest = Signal(str, str, bool)
     _updateInstallProgressRequest = Signal(int)
+    _showRingRequest = Signal(list, bool)
+    _hideRingRequest = Signal()
 
     def __init__(self, engine=None, parent=None, root_dir=None):
         super().__init__(parent)
@@ -332,6 +334,13 @@ class Backend(QObject):
             self._handleUpdateInstallState, Qt.QueuedConnection)
         self._updateInstallProgressRequest.connect(
             self._handleUpdateInstallProgress, Qt.QueuedConnection)
+        self._showRingRequest.connect(
+            self._handleShowRing, Qt.QueuedConnection)
+        self._hideRingRequest.connect(
+            self._handleHideRing, Qt.QueuedConnection)
+
+        self._ring_overlay = None  # created lazily on first show
+        self._ring_visible = False  # thread-safe flag (avoids Qt isVisible() off main thread)
 
         # List-property cache invalidation. Each notify signal maps to the
         # subset of caches that depends on it; reads after the next emit
@@ -359,6 +368,12 @@ class Backend(QObject):
                 engine.set_status_callback(self._onEngineStatusMessage)
             if hasattr(engine, "set_debug_enabled"):
                 engine.set_debug_enabled(self.debugMode)
+            if hasattr(engine, "set_ring_show_callback"):
+                engine.set_ring_show_callback(self._onEngineShowRing)
+                engine.set_ring_hide_callback(self._onEngineHideRing)
+                engine.set_ring_sector_callback(self._getRingCurrentSector)
+            if hasattr(engine, "set_ring_move_callback"):
+                engine.set_ring_move_callback(self._onEngineRingMove)
             self._mouse_connected = bool(getattr(engine, "device_connected", False))
             self._hid_features_ready = bool(
                 getattr(engine, "hid_features_ready", False)
@@ -452,6 +467,8 @@ class Backend(QObject):
         if btns and "mode_shift" not in btns:
             hidden.add("toggle_smart_shift")
             hidden.add("switch_scroll_mode")
+        if sys.platform == "darwin":
+            hidden.update(("win_d", "task_view"))
         return hidden
 
     @Property(list, notify=deviceLayoutChanged)
@@ -581,6 +598,43 @@ class Backend(QObject):
         """Whether the effective device has an Actions Ring button."""
         btns = self._effective_supported_buttons
         return btns is not None and "actions_ring" in btns
+
+    @Property(bool, notify=mappingsChanged)
+    def actionsRingActive(self):
+        """Whether the current profile has the ring action assigned to any button."""
+        mappings = get_active_mappings(self._cfg)
+        return any(
+            v == "activate_actions_ring"
+            for v in mappings.values() if isinstance(v, str)
+        )
+
+    @Property(int, notify=settingsChanged)
+    def actionsRingHoldMs(self):
+        return int(self._cfg.get("settings", {}).get("actions_ring_hold_ms", 250))
+
+    @Slot(int)
+    def setActionsRingHoldMs(self, ms):
+        ms = max(100, min(500, ms))
+        self._cfg.setdefault("settings", {})["actions_ring_hold_ms"] = ms
+        save_config(self._cfg)
+        self.settingsChanged.emit()
+        if self._engine:
+            self._engine.reload_mappings()
+
+    @Property(list, notify=mappingsChanged)
+    def actionsRingSlots(self):
+        mappings = get_active_mappings(self._cfg)
+        return list(mappings.get("actions_ring_slots", []))
+
+    @Slot(list)
+    def setActionsRingSlots(self, slots):
+        profile_name = self._cfg.get("active_profile", "default")
+        prof = self._cfg.get("profiles", {}).get(profile_name, {})
+        prof.setdefault("mappings", {})["actions_ring_slots"] = list(slots)
+        save_config(self._cfg)
+        self.mappingsChanged.emit()
+        if self._engine:
+            self._engine.reload_mappings()
 
     @Property(bool, notify=hidFeaturesReadyChanged)
     def hapticSupported(self):
@@ -1983,6 +2037,65 @@ class Backend(QObject):
         """Runs on Qt main thread."""
         if message:
             self.statusMessage.emit(message)
+
+    # ── Actions Ring overlay ────────────────────────────────────
+
+    def _onEngineShowRing(self, slots, interactive=False):
+        """Called from hook/timer thread — posts to Qt main thread."""
+        from core.key_simulator import ACTIONS
+        from ui.actions_ring_overlay import _resolve_ring_label
+        labels = [_resolve_ring_label(s, ACTIONS.get(s, {}).get("label", s))
+                  for s in slots]
+        self._showRingRequest.emit(labels, bool(interactive))
+
+    def _onEngineHideRing(self):
+        """Called from hook/timer thread — posts to Qt main thread."""
+        self._hideRingRequest.emit()
+
+    def _onEngineRingMove(self, dx, dy):
+        """Called from HID thread — forward rawXY deltas to overlay."""
+        overlay = self._ring_overlay
+        if overlay and self._ring_visible:
+            overlay.accumulate_rawxy(dx, dy)
+
+    def _getRingCurrentSector(self):
+        """Called from hook thread at button-up — reads Python attr, not Qt C++."""
+        overlay = self._ring_overlay
+        if overlay and self._ring_visible:
+            return overlay._highlighted_sector
+        return -1
+
+    @Slot(list, bool)
+    def _handleShowRing(self, labels, interactive):
+        """Runs on Qt main thread — create/show overlay."""
+        from PySide6.QtGui import QCursor
+        from ui.actions_ring_overlay import ActionsRingOverlay
+        if self._ring_overlay is None:
+            self._ring_overlay = ActionsRingOverlay()
+            self._ring_overlay.action_selected.connect(self._onRingActionSelected)
+            self._ring_overlay.cancelled.connect(self._onRingCancelled)
+        pos = QCursor.pos()
+        self._ring_overlay.show_ring(pos.x(), pos.y(), labels, interactive=interactive)
+        self._ring_visible = True
+
+    @Slot()
+    def _handleHideRing(self):
+        """Runs on Qt main thread — hide overlay."""
+        self._ring_visible = False
+        if self._ring_overlay:
+            self._ring_overlay.hide_ring()
+
+    @Slot(int)
+    def _onRingActionSelected(self, sector):
+        """Overlay click on a sector in toggle mode."""
+        if self._engine:
+            self._engine.ring_toggle_select(sector)
+
+    @Slot()
+    def _onRingCancelled(self):
+        """Overlay click on center X or outside ring in toggle mode."""
+        if self._engine:
+            self._engine.ring_toggle_dismiss()
 
     @Slot(str)
     def _handleProfileSwitch(self, profile_name):

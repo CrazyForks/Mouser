@@ -26,14 +26,14 @@ CONFIG_FILE = os.path.join(CONFIG_DIR, "config.json")
 # Order matches the Logi Options+ diagram (top view then side view)
 BUTTON_NAMES = {
     "middle":        "Middle button",
-    "gesture":       "Gesture button",
+    "gesture":       "Actions Ring",
     "xbutton1":      "Back button",
     "xbutton2":      "Forward button",
     "hscroll_left":  "Horizontal scroll left",
     "hscroll_right": "Horizontal scroll right",
     "mode_shift":    "Mode shift button",
     "dpi_switch":    "DPI switch button",
-    "actions_ring":  "Actions Ring button",
+    "actions_ring":  "Gesture button",
     "thumb_button":  "Thumb button",
 }
 
@@ -100,8 +100,12 @@ BUTTON_TO_EVENTS = {
     "thumb_button":  ("thumb_button_down", "thumb_button_up"),
 }
 
+BUTTON_HOLD_EVENTS = {
+    "gesture": ("gesture_button_down", "gesture_button_up"),
+}
+
 DEFAULT_CONFIG = {
-    "version": 16,
+    "version": 20,
     "active_profile": "default",
     "profiles": {
         "default": {
@@ -109,7 +113,7 @@ DEFAULT_CONFIG = {
             "apps": [],          # empty = all apps (fallback profile)
             "mappings": {
                 "middle": "none",
-                "gesture": "none",
+                "gesture": "activate_actions_ring",
                 "gesture_left": "none",
                 "gesture_right": "none",
                 "gesture_up": "none",
@@ -121,6 +125,10 @@ DEFAULT_CONFIG = {
                 "mode_shift": "switch_scroll_mode",
                 "actions_ring": "none",
                 "thumb_button": "none",
+                "actions_ring_slots": [
+                    "mission_control", "play_pause",
+                    "show_desktop", "launchpad",
+                ],
             },
             "button_haptic": {},  # per-button haptic override; absent key = enabled (True)
         }
@@ -154,6 +162,7 @@ DEFAULT_CONFIG = {
         "check_for_updates": True,
         "update_check_state": {},
         "force_sensitivity": None,
+        "actions_ring_hold_ms": 250,
     },
 }
 
@@ -538,6 +547,50 @@ def _migrate(cfg):
         # v15 -> v16: add force sensing button sensitivity (None = device default).
         cfg.setdefault("settings", {}).setdefault("force_sensitivity", None)
         cfg["version"] = 16
+
+    if version < 17:
+        # v16 -> v17: migrate hscroll_threshold from old default (int 1) to 0.1.
+        s = cfg.setdefault("settings", {})
+        if s.get("hscroll_threshold") == 1:
+            s["hscroll_threshold"] = 0.1
+        cfg["version"] = 17
+
+    if version < 18:
+        # v17 -> v18: Actions Ring radial overlay — mode, hold threshold, slots.
+        s = cfg.setdefault("settings", {})
+        s.setdefault("actions_ring_mode", "ring")
+        s.setdefault("actions_ring_hold_ms", 250)
+        for prof in cfg.get("profiles", {}).values():
+            m = prof.get("mappings", {})
+            m.setdefault("actions_ring_slots", [
+                "screenshot_fullscreen", "play_pause",
+                "show_desktop", "lock_screen",
+            ])
+        cfg["version"] = 18
+
+    if version < 19:
+        # v18 -> v19: Actions Ring is now an assignable action.
+        s = cfg.setdefault("settings", {})
+        old_mode = s.pop("actions_ring_mode", "ring")
+        for prof in cfg.get("profiles", {}).values():
+            m = prof.get("mappings", {})
+            if old_mode == "ring":
+                m["actions_ring"] = "activate_actions_ring"
+            elif old_mode == "disabled":
+                m["actions_ring"] = "none"
+            # "simple": keep existing mapping (already a real action ID)
+        cfg["version"] = 19
+
+    if version < 20:
+        # v19 -> v20: move default actions ring activation from thumb button
+        # (config key "actions_ring") to sense panel (config key "gesture").
+        for prof in cfg.get("profiles", {}).values():
+            m = prof.get("mappings", {})
+            if (m.get("actions_ring") == "activate_actions_ring"
+                    and m.get("gesture", "none") == "none"):
+                m["gesture"] = "activate_actions_ring"
+                m["actions_ring"] = "none"
+        cfg["version"] = 20
 
     cfg.setdefault("settings", {})
     cfg["settings"].setdefault("appearance_mode", "system")

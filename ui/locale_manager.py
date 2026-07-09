@@ -12,6 +12,7 @@ _TRANSLATIONS = {
         "nav.mouse_profiles": "Mouse & Profiles",
         "nav.point_scroll": "General",
         "nav.haptic_feedback": "Haptic Feedback",
+        "nav.actions_ring": "Actions Ring",
         "nav.about": "About",
 
         # Haptic Feedback page
@@ -39,6 +40,15 @@ _TRANSLATIONS = {
         "haptic.dedup_title": "Prevent Duplicate Haptics",
         "haptic.dedup_desc": "When two haptic events fire close together, play only one pulse. Disable to allow both.",
         "haptic.experimental_note": "Haptic feedback support is experimental. Some settings may not take effect until the protocol is fully documented.",
+
+        # Actions Ring page
+        "ring.title": "Actions Ring",
+        "ring.subtitle": "Configure hold delay and sector actions for the radial menu",
+        "ring.hold_delay": "Hold Delay",
+        "ring.hold_delay_desc": "How long to hold the thumb button before the ring appears",
+        "ring.slots_title": "Ring Actions",
+        "ring.slots_desc": "Choose the actions available in each sector of the radial menu",
+        "ring.slot_prefix": "Slot ",
 
         # Mouse page — profile list
         "mouse.profiles": "Profiles",
@@ -298,6 +308,17 @@ _TRANSLATIONS = {
         "haptic.dedup_title": "\u9632\u6b62\u91cd\u590d\u89e6\u89c9",
         "haptic.dedup_desc": "\u5f53\u4e24\u4e2a\u89e6\u89c9\u4e8b\u4ef6\u77ed\u65f6\u95f4\u5185\u540c\u65f6\u89e6\u53d1\u65f6\uff0c\u4ec5\u64ad\u653e\u4e00\u6b21\u3002\u7981\u7528\u5219\u5141\u8bb8\u4e24\u6b21\u90fd\u89e6\u53d1\u3002",
         "haptic.experimental_note": "\u89e6\u89c9\u53cd\u9988\u652f\u6301\u4e3a\u5b9e\u9a8c\u6027\u529f\u80fd\u3002\u90e8\u5206\u8bbe\u7f6e\u53ef\u80fd\u5728\u534f\u8bae\u5b8c\u5168\u6587\u6863\u5316\u540e\u624d\u751f\u6548\u3002",
+
+        # Actions Ring page
+        "ring.title": "\u52a8\u4f5c\u73af",
+        "ring.subtitle": "\u914d\u7f6e\u5f84\u5411\u83dc\u5355\u7684\u6309\u4f4f\u5ef6\u8fdf\u548c\u6247\u533a\u52a8\u4f5c",
+        "ring.hold_delay": "\u6309\u4f4f\u5ef6\u8fdf",
+        "ring.hold_delay_desc": "\u6309\u4f4f\u62c7\u6307\u6309\u94ae\u591a\u957f\u65f6\u95f4\u540e\u663e\u793a\u52a8\u4f5c\u73af",
+        "ring.slots_title": "\u73af\u5f62\u52a8\u4f5c",
+        "ring.slots_desc": "\u9009\u62e9\u5f84\u5411\u83dc\u5355\u6bcf\u4e2a\u6247\u533a\u4e2d\u53ef\u7528\u7684\u52a8\u4f5c",
+        "ring.slot_prefix": "\u4f4d\u7f6e ",
+
+        "nav.actions_ring": "\u52a8\u4f5c\u73af",
         "nav.about": "\u5173\u4e8e",
 
         "mouse.profiles": "\u914d\u7f6e\u6587\u4ef6",
@@ -541,6 +562,17 @@ _TRANSLATIONS = {
         "haptic.dedup_title": "\u9632\u6b62\u91cd\u8907\u89f8\u89ba",
         "haptic.dedup_desc": "\u7576\u5169\u500b\u89f8\u89ba\u4e8b\u4ef6\u77ed\u6642\u9593\u5167\u540c\u6642\u89f8\u767c\u6642\uff0c\u50c5\u64ad\u653e\u4e00\u6b21\u3002\u505c\u7528\u5247\u5141\u8a31\u5169\u6b21\u90fd\u89f8\u767c\u3002",
         "haptic.experimental_note": "\u89f8\u89ba\u56de\u994b\u652f\u63f4\u70ba\u5be6\u9a57\u6027\u529f\u80fd\u3002\u90e8\u5206\u8a2d\u5b9a\u53ef\u80fd\u5728\u5354\u5b9a\u5b8c\u5168\u6587\u4ef6\u5316\u5f8c\u624d\u751f\u6548\u3002",
+
+        # Actions Ring page
+        "ring.title": "\u52d5\u4f5c\u74b0",
+        "ring.subtitle": "\u8a2d\u5b9a\u5f91\u5411\u9078\u55ae\u7684\u6309\u4f4f\u5ef6\u9072\u548c\u6247\u5340\u52d5\u4f5c",
+        "ring.hold_delay": "\u6309\u4f4f\u5ef6\u9072",
+        "ring.hold_delay_desc": "\u6309\u4f4f\u62c7\u6307\u6309\u9375\u591a\u9577\u6642\u9593\u5f8c\u986f\u793a\u52d5\u4f5c\u74b0",
+        "ring.slots_title": "\u74b0\u5f62\u52d5\u4f5c",
+        "ring.slots_desc": "\u9078\u64c7\u5f91\u5411\u9078\u55ae\u6bcf\u500b\u6247\u5340\u4e2d\u53ef\u7528\u7684\u52d5\u4f5c",
+        "ring.slot_prefix": "\u4f4d\u7f6e ",
+
+        "nav.actions_ring": "\u52d5\u4f5c\u74b0",
         "nav.about": "\u95dc\u65bc",
 
         "mouse.profiles": "\u8a2d\u5b9a\u6a94",
@@ -778,6 +810,7 @@ _BUTTON_TR: dict[str, dict[str, str]] = {
         "Gesture swipe right":    "\u624b\u52bf\u53f3\u6ed1",
         "Gesture swipe up":       "\u624b\u52bf\u4e0a\u6ed1",
         "Gesture swipe down":     "\u624b\u52bf\u4e0b\u6ed1",
+        "Actions Ring": "\u52a8\u4f5c\u73af",
     },
     "zh_TW": {
         "Middle button":          "\u4e2d\u9375",
@@ -793,6 +826,7 @@ _BUTTON_TR: dict[str, dict[str, str]] = {
         "Gesture swipe right":    "\u624b\u52e2\u53f3\u6ed1",
         "Gesture swipe up":       "\u624b\u52e2\u4e0a\u6ed1",
         "Gesture swipe down":     "\u624b\u52e2\u4e0b\u6ed1",
+        "Actions Ring": "\u52d5\u4f5c\u74b0",
     },
 }
 

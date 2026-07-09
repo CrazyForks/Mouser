@@ -38,6 +38,8 @@ class BaseMouseHook:
         self.divert_dpi_switch = False
         self.wheel_native_invert_active = False
         self._gesture_direction_enabled = False
+        self._gesture_os_passthrough = False
+        self._gesture_move_callback = None
         self._gesture_recognizer = GestureRecognizer(
             on_swipe=self._on_recognized_swipe,
             on_debug=self._emit_gesture_event,
@@ -100,6 +102,14 @@ class BaseMouseHook:
             settle_ms=settle_ms,
             cross_ratio=cross_ratio,
         )
+
+    def set_gesture_os_passthrough(self, enabled, move_callback=None):
+        """When True, rawXY deltas during a gesture hold are forwarded to
+        move_callback instead of being fed to the gesture recognizer.
+        Setting both atomically avoids a window where passthrough is
+        active but the callback is not yet installed."""
+        self._gesture_move_callback = move_callback
+        self._gesture_os_passthrough = bool(enabled)
 
     def set_connection_change_callback(self, cb):
         self._connection_change_cb = cb
@@ -281,6 +291,7 @@ class BaseMouseHook:
         self._gesture_active = True
         self._emit_debug("HID gesture button down")
         self._emit_gesture_event({"type": "button_down"})
+        self._dispatch(MouseEvent(MouseEvent.GESTURE_BUTTON_DOWN))
 
     def _on_hid_gesture_up(self):
         if getattr(self, "_ui_passthrough", False):
@@ -299,6 +310,7 @@ class BaseMouseHook:
         self._emit_gesture_event(
             {"type": "button_up", "click_candidate": was_click}
         )
+        self._dispatch(MouseEvent(MouseEvent.GESTURE_BUTTON_UP))
         if was_click:
             self._dispatch(MouseEvent(MouseEvent.GESTURE_CLICK))
 
@@ -308,6 +320,14 @@ class BaseMouseHook:
         self._emit_gesture_event(
             {"type": "move", "source": "hid_rawxy", "dx": dx, "dy": dy}
         )
+        if self._gesture_os_passthrough and self._gesture_active:
+            cb = self._gesture_move_callback
+            if cb:
+                try:
+                    cb(dx, dy)
+                except Exception:
+                    pass
+            return
         self._gesture_recognizer.sample(dx, dy, "hid_rawxy")
 
     def _on_recognized_swipe(self, direction):
@@ -347,7 +367,9 @@ class BaseMouseHook:
         self._dispatch(MouseEvent(MouseEvent.ACTIONS_RING_UP))
 
     def _on_hid_thumb_button_down(self):
-        self._dispatch(MouseEvent(MouseEvent.THUMB_BUTTON_DOWN))
+        # HID layer calls this "thumb_button" (physical location), but the
+        # UI/config key is "actions_ring" — dispatch the matching event type.
+        self._dispatch(MouseEvent(MouseEvent.ACTIONS_RING_DOWN))
 
     def _on_hid_thumb_button_up(self):
-        self._dispatch(MouseEvent(MouseEvent.THUMB_BUTTON_UP))
+        self._dispatch(MouseEvent(MouseEvent.ACTIONS_RING_UP))

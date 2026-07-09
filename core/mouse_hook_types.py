@@ -23,8 +23,9 @@ class MouseEvent:
     XBUTTON1_UP = "xbutton1_up"
     XBUTTON2_DOWN = "xbutton2_down"
     XBUTTON2_UP = "xbutton2_up"
-    # MX Master 4 Thumb button (small front-face button, HID++ CID 0x00c3).
-    # Distinct from the Sense Panel (CID 0x01a0), which is the gesture button.
+    # Reserved — currently unused.  The MX Master 4's small thumb-area
+    # button (CID 0x00C3) dispatches as ACTIONS_RING_DOWN/UP (see below)
+    # because the UI/config calls it "actions_ring", not "thumb_button".
     THUMB_BUTTON_DOWN = "thumb_button_down"
     THUMB_BUTTON_UP = "thumb_button_up"
     MIDDLE_DOWN = "middle_down"
@@ -32,6 +33,8 @@ class MouseEvent:
     GESTURE_DOWN = "gesture_down"
     GESTURE_UP = "gesture_up"
     GESTURE_CLICK = "gesture_click"
+    GESTURE_BUTTON_DOWN = "gesture_button_down"
+    GESTURE_BUTTON_UP = "gesture_button_up"
     GESTURE_SWIPE_LEFT = "gesture_swipe_left"
     GESTURE_SWIPE_RIGHT = "gesture_swipe_right"
     GESTURE_SWIPE_UP = "gesture_swipe_up"

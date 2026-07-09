@@ -44,6 +44,9 @@ ApplicationWindow {
         if (backend.hapticSupported) {
             items.push({ icon: "circle", tipKey: "nav.haptic_feedback", page: 2 })
         }
+        if (backend.deviceHasActionsRing && backend.actionsRingActive) {
+            items.push({ icon: "target", tipKey: "nav.actions_ring", page: 3 })
+        }
         return items
     }
 
@@ -282,6 +285,10 @@ ApplicationWindow {
             Loader {
                 active: (root.currentPage === 2 || item) && backend.hapticSupported
                 source: "HapticPage.qml"
+            }
+            Loader {
+                active: (root.currentPage === 3 || item) && backend.deviceHasActionsRing && backend.actionsRingActive
+                source: "ActionsRingConfig.qml"
             }
         }
     }

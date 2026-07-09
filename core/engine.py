@@ -14,8 +14,8 @@ from core.key_simulator import (
 )
 from core.config import (
     load_config, get_active_mappings, get_profile_for_app_identity,
-    BUTTON_TO_EVENTS, GESTURE_DIRECTION_BUTTONS, save_config,
-    action_haptic_enabled, button_haptic_enabled,
+    BUTTON_TO_EVENTS, BUTTON_HOLD_EVENTS, GESTURE_DIRECTION_BUTTONS,
+    save_config, action_haptic_enabled, button_haptic_enabled,
     WHEEL_DIVERT_OFF, coerce_wheel_divert_setting,
 )
 from core.app_detector import AppDetector
@@ -26,6 +26,7 @@ from core.linux_permissions import (
     linux_permission_status_message,
 )
 from core.logi_devices import clamp_dpi
+from core.actions_ring import ActionsRingController
 
 HSCROLL_ACTION_COOLDOWN_S = 0.35
 HSCROLL_VOLUME_COOLDOWN_S = 0.06
@@ -71,10 +72,16 @@ class Engine:
         self._hid_replay_requested_this_launch = False
         self._desktop_info_cache = None
         self._desktop_info_ts = 0.0
+        self._desktop_direction = "right"
         self._replay_inflight = False
         self._replay_pending_rerun = False
         self._replay_lock = threading.Lock()
         self._mouse_release_timers = {}   # action_id → Timer for safety auto-release
+        self._ring = None                 # ActionsRingController (created in _setup_hooks)
+        self._ring_show_cb = None         # UI callback for showing ring overlay
+        self._ring_hide_cb = None         # UI callback for hiding ring overlay
+        self._ring_sector_cb = None       # UI callback to get current overlay sector
+        self._ring_move_cb = None         # UI callback for rawXY deltas → overlay
         self._lock = threading.Lock()
         self.hook.set_debug_callback(self._emit_debug)
         self.hook.set_gesture_callback(self._emit_gesture_event)
@@ -115,14 +122,26 @@ class Engine:
         if hasattr(self.hook, "ignore_trackpad"):
             self.hook.ignore_trackpad = settings.get("ignore_trackpad", True)
         self.hook.debug_mode = self._debug_events_enabled
+        ring_btn_key = next(
+            (k for k, v in mappings.items()
+             if isinstance(v, str) and v == "activate_actions_ring"),
+            None,
+        )
+        gesture_ring_active = mappings.get("gesture") == "activate_actions_ring"
         self.hook.configure_gestures(
-            enabled=any(mappings.get(key, "none") != "none"
-                        for key in GESTURE_DIRECTION_BUTTONS),
+            enabled=(not gesture_ring_active
+                     and any(mappings.get(key, "none") != "none"
+                             for key in GESTURE_DIRECTION_BUTTONS)),
             threshold=settings.get("gesture_threshold", 25),
             commit_window_ms=settings.get("gesture_commit_window_ms", 400),
             settle_ms=settings.get("gesture_settle_ms", 90),
             cross_ratio=settings.get("gesture_cross_ratio", 0.5),
         )
+        if hasattr(self.hook, "set_gesture_os_passthrough"):
+            self.hook.set_gesture_os_passthrough(
+                gesture_ring_active,
+                move_callback=self._on_gesture_rawxy if gesture_ring_active else None,
+            )
         self._apply_wheel_invert_setting()
         # Divert mode shift CID only when the device has the button and
         # at least one profile maps it to an action.  When no device is
@@ -149,9 +168,75 @@ class Engine:
             )
         )
 
+        # Actions Ring controller — create/recreate on every hook setup so
+        # profile switches pick up the new slot list automatically.
+        if self._ring:
+            self._ring.shutdown()
+            self._ring = None
+
+        any_ring = any(
+            v == "activate_actions_ring"
+            for v in mappings.values() if isinstance(v, str)
+        )
+        if any_ring:
+            slots = mappings.get("actions_ring_slots", [])
+            hold_ms = settings.get("actions_ring_hold_ms", 250)
+            ring_btn = ring_btn_key or ""
+            self._ring = ActionsRingController(
+                slots=slots,
+                hold_ms=hold_ms,
+                execute_cb=self._execute_ring_action,
+                play_haptic_cb=lambda wf, _b=ring_btn: (
+                    self._play_haptic_async(wf)
+                    if button_haptic_enabled(self.cfg, _b) else None
+                ),
+                show_ring_cb=self._on_ring_show,
+                hide_ring_cb=self._on_ring_hide,
+                move_cb=self._on_ring_move,
+            )
+
         self._emit_mapping_snapshot("Hook mappings refreshed", mappings)
 
         for btn_key, action_id in mappings.items():
+            if not isinstance(action_id, str):
+                continue
+            # Actions Ring — route through controller when mapped to the ring action.
+            if action_id == "activate_actions_ring" and self._ring is not None:
+                ring = self._ring
+                events = list(BUTTON_TO_EVENTS.get(btn_key, ()))
+                has_down = any(e.endswith("_down") for e in events)
+                has_up = any(e.endswith("_up") for e in events)
+                if has_down and has_up:
+                    down_evt = next(e for e in events if e.endswith("_down"))
+                    up_evt = next(e for e in events if e.endswith("_up"))
+                    self.hook.block(down_evt)
+                    self.hook.block(up_evt)
+                    self.hook.register(down_evt,
+                                       lambda e, r=ring: r.on_button_down())
+                    self.hook.register(up_evt,
+                                       lambda e, r=ring: self._on_ring_button_up(r))
+                else:
+                    hold_events = BUTTON_HOLD_EVENTS.get(btn_key)
+                    if hold_events:
+                        down_evt, up_evt = hold_events
+                        self.hook.block(down_evt)
+                        self.hook.block(up_evt)
+                        self.hook.register(down_evt,
+                                           lambda e, r=ring: r.on_button_down())
+                        self.hook.register(up_evt,
+                                           lambda e, r=ring: self._on_ring_button_up(r))
+                        for evt_type in events:
+                            self.hook.block(evt_type)
+                    else:
+                        for evt_type in events:
+                            self.hook.block(evt_type)
+                            self.hook.register(evt_type,
+                                               lambda e, r=ring: r.on_click())
+                continue
+
+            if ring_btn_key == "gesture" and btn_key in GESTURE_DIRECTION_BUTTONS:
+                continue
+
             events = list(BUTTON_TO_EVENTS.get(btn_key, ()))
             has_paired_down = any(e.endswith("_down") for e in events)
             has_up = any(e.endswith("_up") for e in events)
@@ -214,16 +299,7 @@ class Engine:
                                 or button_haptic_enabled(self.cfg, btn_key)):
                             wf = 3 if action_id == "cycle_dpi" else 1
                             self._play_haptic_async(wf)
-                    if action_id == "toggle_smart_shift":
-                        self._toggle_smart_shift(btn_key)
-                    elif action_id == "switch_scroll_mode":
-                        self._switch_scroll_mode(btn_key)
-                    elif action_id == "cycle_dpi":
-                        self._cycle_dpi(btn_key)
-                    elif action_id == "cycle_desktops":
-                        self._cycle_desktops()
-                    else:
-                        execute_action(action_id)
+                    self._dispatch_action(action_id, btn_key)
             except Exception as exc:
                 print(f"[Engine] _make_handler EXCEPTION for {action_id}: {exc}")
                 import traceback; traceback.print_exc()
@@ -473,8 +549,11 @@ class Engine:
             # CGSGetActiveSpace returns the current space id64 of the
             # display where the cursor is located.
             cg = ctypes.CDLL('/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics')
+            cg.CGSMainConnectionID.restype = ctypes.c_uint32
             cg.CGSGetActiveSpace.restype = ctypes.c_int64
-            current_id64 = cg.CGSGetActiveSpace()
+            cg.CGSGetActiveSpace.argtypes = [ctypes.c_uint32]
+            conn = cg.CGSMainConnectionID()
+            current_id64 = cg.CGSGetActiveSpace(conn)
 
             # Read spaces config
             result = subprocess.run(
@@ -560,8 +639,6 @@ class Engine:
             print("[Engine] cycle_desktops only supported on macOS")
             return
 
-        settings = self.cfg.setdefault("settings", {})
-
         # Get desktop info (cached for 5 seconds to avoid subprocess per press)
         now = time.time()
         if self._desktop_info_cache is None or (now - self._desktop_info_ts) > 5.0:
@@ -574,20 +651,17 @@ class Engine:
             print(f"[Engine] cycle_desktops: only {desktop_count} desktop, skipping")
             return
 
-        # Read direction state
-        direction = settings.get("desktop_direction", "right")
+        direction = self._desktop_direction
 
         # Calculate next position
         if direction == "right":
             if current >= desktop_count:
-                # At right edge, reverse
                 direction = "left"
                 next_pos = current - 1
             else:
                 next_pos = current + 1
         else:  # left
             if current <= 1:
-                # At left edge, reverse
                 direction = "right"
                 next_pos = current + 1
             else:
@@ -600,9 +674,8 @@ class Engine:
         else:
             execute_action("space_left")
 
-        # Save direction state
-        settings["desktop_direction"] = direction
-        save_config(self.cfg)
+        self._desktop_direction = direction
+        self._desktop_info_cache = (desktop_count, next_pos)
 
     def _make_hscroll_handler(self, action_id):
         def handler(event):
@@ -674,6 +747,101 @@ class Engine:
                 self._profile_change_cb(profile_name)
             except Exception:
                 pass
+
+    # ------------------------------------------------------------------
+    # Actions Ring
+    # ------------------------------------------------------------------
+
+    def set_ring_show_callback(self, cb):
+        """Register ``cb(slots)`` invoked when the ring overlay should appear."""
+        self._ring_show_cb = cb
+
+    def set_ring_hide_callback(self, cb):
+        """Register ``cb()`` invoked when the ring overlay should disappear."""
+        self._ring_hide_cb = cb
+
+    def set_ring_sector_callback(self, cb):
+        """Register ``cb() -> int`` that returns the overlay's current sector."""
+        self._ring_sector_cb = cb
+
+    def set_ring_move_callback(self, cb):
+        """Register ``cb(dx, dy)`` invoked for rawXY deltas during held ring."""
+        self._ring_move_cb = cb
+
+    def _on_ring_move(self, dx, dy):
+        """Called by the ring controller to forward rawXY deltas to the UI."""
+        if self._ring_move_cb:
+            try:
+                self._ring_move_cb(dx, dy)
+            except Exception as exc:
+                print(f"[Engine] ring move callback error: {exc}")
+
+    def _on_gesture_rawxy(self, dx, dy):
+        """Hook callback — forward rawXY deltas to the ring controller."""
+        ring = self._ring
+        if ring:
+            ring.on_move(dx, dy)
+
+    def _on_ring_show(self, slots, interactive=False):
+        """Called by the controller when the ring should appear."""
+        if self._ring_show_cb:
+            try:
+                self._ring_show_cb(slots, interactive)
+            except Exception as exc:
+                print(f"[Engine] ring show callback error: {exc}")
+
+    def _on_ring_hide(self):
+        """Called by the controller when the ring should disappear."""
+        if self._ring_hide_cb:
+            try:
+                self._ring_hide_cb()
+            except Exception as exc:
+                print(f"[Engine] ring hide callback error: {exc}")
+
+    def _on_ring_button_up(self, ring=None):
+        """Handle actions_ring_up — pass current sector from overlay to controller."""
+        ring = ring or self._ring
+        if not ring:
+            return
+        sector = None
+        if self._ring_sector_cb:
+            try:
+                sector = self._ring_sector_cb()
+            except Exception:
+                pass
+        ring.on_button_up(sector_override=sector)
+
+    def ring_toggle_select(self, sector):
+        """Called from the UI when user clicks a sector in toggle mode."""
+        if self._ring:
+            self._ring.on_toggle_select(sector)
+
+    def ring_toggle_dismiss(self):
+        """Called from the UI when user clicks center X or outside in toggle mode."""
+        if self._ring:
+            self._ring.on_toggle_dismiss()
+
+    def _dispatch_action(self, action_id, source_key=""):
+        """Route an action to the appropriate engine handler or system executor."""
+        if action_id == "activate_actions_ring":
+            return
+        elif action_id == "toggle_smart_shift":
+            self._toggle_smart_shift(source_key)
+        elif action_id == "switch_scroll_mode":
+            self._switch_scroll_mode(source_key)
+        elif action_id == "cycle_dpi":
+            self._cycle_dpi(source_key)
+        elif action_id == "cycle_desktops":
+            self._cycle_desktops()
+        else:
+            execute_action(action_id)
+
+    def _execute_ring_action(self, action_id):
+        """Execute an action from the ring."""
+        if not self._enabled or action_id == "none":
+            return
+        self._emit_debug(f"Ring action -> {action_id} ({self._action_label(action_id)})")
+        self._dispatch_action(action_id, "actions_ring")
 
     def set_profile_change_callback(self, cb):
         """Register a callback ``cb(profile_name)`` invoked on auto-switch."""
@@ -1148,6 +1316,9 @@ class Engine:
         self._smart_shift_read_cb = cb
 
     def stop(self):
+        if self._ring:
+            self._ring.shutdown()
+            self._ring = None
         self._battery_poll_stop.set()
         if self._battery_poll_thread is not None:
             self._battery_poll_thread.join(timeout=5)

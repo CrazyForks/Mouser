@@ -23,10 +23,12 @@ MX_MASTER_BUTTONS = (
     "mode_shift",
 )
 
-# MX Master 4 layout: the standard MX Master set plus a third thumb-area
-# button. The MX Master 4 relocates the legacy gesture button (CID 0x00C3)
-# next to back/forward and adds a haptic Sense Panel (CID 0x01A0); the
-# "thumb_button" key gives the relocated button its own UI mapping target.
+# MX Master 4 layout: two gesture-area buttons instead of one.
+#  - Sense Panel (CID 0x01A0): large top surface → config key "gesture".
+#    Supports swipe gestures AND tap-to-activate actions like the Actions Ring.
+#  - Gesture button (CID 0x00C3): small thumb-area button → config key
+#    "actions_ring".  The HID layer calls this "thumb_button" internally
+#    (after its physical location); the dispatch maps it to actions_ring events.
 MX_MASTER_4_BUTTONS = (
     "middle",
     "gesture",
@@ -403,14 +405,14 @@ LOGI_DEVICE_LAYOUTS = {
                 label_off_y=-16,
             ),
             _hotspot(
-                "actions_ring",
-                "Actions Ring button",
-                "mapping",
-                0.403,
-                0.388,
+                "gesture",
+                "Actions Ring",
+                "gesture",
+                0.289,
+                0.698,
                 label_side="left",
-                label_off_x=-62,
-                label_off_y=-57,
+                label_off_x=-75,
+                label_off_y=49,
             ),
             _hotspot(
                 "xbutton2",
@@ -444,14 +446,14 @@ LOGI_DEVICE_LAYOUTS = {
                 label_off_y=18,
             ),
             _hotspot(
-                "gesture",
+                "actions_ring",
                 "Gesture button",
-                "gesture",
-                0.289,
-                0.698,
+                "mapping",
+                0.403,
+                0.388,
                 label_side="left",
-                label_off_x=-75,
-                label_off_y=49,
+                label_off_x=-62,
+                label_off_y=-57,
             ),
             _hotspot(
                 "mode_shift",

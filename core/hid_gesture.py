@@ -1529,7 +1529,9 @@ class HidGestureListener:
         divert is rejected we fall back to 0x00C3 as the gesture CID, and
         then we want it button-only so the cursor doesn't freeze every
         time the user clicks the small button. A single button-only flag
-        for the whole listener can't express that."""
+        for the whole listener can't express that.
+
+        """
         if self._feat_idx is None:
             return False
         for cid in self._gesture_candidates:
@@ -2604,6 +2606,8 @@ class HidGestureListener:
             opened_usage = int(usage or 0)
             opened_path = ""
             open_attempts = []
+            candidate_transport = (info.get("transport") or "").lower()
+            is_bt_candidate = "bluetooth" in candidate_transport
             # On macOS, prefer IOKit (non-exclusive access) over hidapi
             # which may lock the device and freeze the cursor.
             if (
@@ -2611,15 +2615,15 @@ class HidGestureListener:
                 and _MAC_NATIVE_OK
                 and _BACKEND_PREFERENCE in ("auto", "iokit")
             ):
-                open_attempts.extend([
-                    ("iokit-exact", info),
-                    ("iokit-ble", {
+                if not is_bt_candidate:
+                    open_attempts.append(("iokit-exact", info))
+                if is_bt_candidate or not candidate_transport:
+                    open_attempts.append(("iokit-ble", {
                         "product_id": pid,
                         "usage_page": 0,
                         "usage": 0,
                         "transport": "Bluetooth Low Energy",
-                    }),
-                ])
+                    }))
             if _BACKEND_PREFERENCE in ("auto", "hidapi") and info.get("path"):
                 open_attempts.append(("hidapi", info))
 
@@ -2665,10 +2669,17 @@ class HidGestureListener:
             if self._dev is None:
                 continue
 
-            # Cached dev_idx first, then Bluetooth direct (0xFF), then
-            # receiver slots 1..6. 400 ms per-slot discovery timeout --
-            # a live HID++ device replies in <50 ms.
-            default_idx_order = (BT_DEV_IDX, 1, 2, 3, 4, 5, 6)
+            # Narrow the device-index search based on transport:
+            #  - BT candidates only use BT_DEV_IDX (0xFF)
+            #  - Bolt receivers only use slots 1-6
+            #  - Unknown: try all (BT first, then receiver slots)
+            bt_opened = "bluetooth" in (opened_transport or "").lower()
+            if bt_opened:
+                default_idx_order = (BT_DEV_IDX,)
+            elif pid == BOLT_RECEIVER_PID:
+                default_idx_order = (1, 2, 3, 4, 5, 6)
+            else:
+                default_idx_order = (BT_DEV_IDX, 1, 2, 3, 4, 5, 6)
             cached_dev_idx = None
             if (
                 cached_candidate is not None
@@ -2679,7 +2690,7 @@ class HidGestureListener:
                     cached_dev_idx = int(cached_device.get("dev_idx"))
                 except (TypeError, ValueError):
                     cached_dev_idx = None
-            if cached_dev_idx is not None:
+            if cached_dev_idx is not None and cached_dev_idx in default_idx_order:
                 idx_order = (cached_dev_idx,) + tuple(
                     i for i in default_idx_order if i != cached_dev_idx
                 )
@@ -2930,9 +2941,9 @@ class HidGestureListener:
         while self._running:
             if not self._try_connect():
                 if not retry_logged:
-                    print("[HidGesture] No compatible device; retrying in 5 s…")
+                    print("[HidGesture] No compatible device; retrying in 1.5 s…")
                     retry_logged = True
-                for _ in range(50):
+                for _ in range(15):
                     if not self._running:
                         return
                     time.sleep(0.1)

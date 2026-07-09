@@ -572,6 +572,11 @@ if sys.platform == "win32":
             "keys": [],               # handled by Engine, not key_simulator
             "category": "Scroll",
         },
+        "activate_actions_ring": {
+            "label": "Actions Ring",
+            "keys": [],               # handled by Engine, not key_simulator
+            "category": "Other",
+        },
         "mouse_left_click": {
             "label": "Left Click",
             "keys": [],
@@ -1215,6 +1220,11 @@ elif sys.platform == "darwin":
             "keys": [],               # handled by Engine, not key_simulator
             "category": "Scroll",
         },
+        "activate_actions_ring": {
+            "label": "Actions Ring",
+            "keys": [],               # handled by Engine, not key_simulator
+            "category": "Other",
+        },
         "mouse_left_click": {
             "label": "Left Click",
             "keys": [],
@@ -1657,6 +1667,11 @@ elif sys.platform == "linux":
             "keys": [],               # handled by Engine, not key_simulator
             "category": "Scroll",
         },
+        "activate_actions_ring": {
+            "label": "Actions Ring",
+            "keys": [],               # handled by Engine, not key_simulator
+            "category": "Other",
+        },
         "mouse_left_click": {
             "label": "Left Click",
             "keys": [],
@@ -1783,6 +1798,11 @@ else:
             "label": "Cycle DPI Presets",
             "keys": [],               # handled by Engine, not key_simulator
             "category": "Scroll",
+        },
+        "activate_actions_ring": {
+            "label": "Actions Ring",
+            "keys": [],               # handled by Engine, not key_simulator
+            "category": "Other",
         },
         "none": {
             "label": "Do Nothing (Pass-through)",

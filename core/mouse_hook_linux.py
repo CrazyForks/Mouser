@@ -779,13 +779,13 @@ class MouseHook(BaseMouseHook):
         if code == _ecodes.REL_WHEEL or code == rel_wheel_hi_res:
             if value != 0 and self._shift_held():
                 if code == _ecodes.REL_WHEEL:
-                    h_value = -value if self.invert_hscroll else value
+                    h_value = -value if (self.invert_hscroll and not self.wheel_native_invert_active) else value
                     self._uinput.write(_ecodes.EV_REL, _ecodes.REL_HWHEEL, h_value)
                 # REL_WHEEL_HI_RES events are suppressed while Shift is held so
                 # the vertical scroll doesn't double-fire alongside the
                 # translated horizontal scroll.
                 return
-            if self.invert_vscroll:
+            if self.invert_vscroll and not self.wheel_native_invert_active:
                 self._uinput.write(_ecodes.EV_REL, code, -value)
             else:
                 self._uinput.write_event(event)
@@ -807,7 +807,7 @@ class MouseHook(BaseMouseHook):
 
             if should_block:
                 return
-            if self.invert_hscroll:
+            if self.invert_hscroll and not self.wheel_native_invert_active:
                 self._uinput.write(_ecodes.EV_REL, code, -value)
             else:
                 self._uinput.write_event(event)

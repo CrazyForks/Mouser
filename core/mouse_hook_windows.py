@@ -355,14 +355,12 @@ class MouseHook(BaseMouseHook):
                             self._shift_hscroll_posted = True
                             return 1
                         self._pending_shift_hscroll -= h_delta
-                        return 1
                     else:
                         self._emit_debug(
                             "Shift+wheel translation skipped: "
                             "raw input window unavailable"
                         )
-                    return 1
-                if self.invert_vscroll:
+                if self.invert_vscroll and not self.wheel_native_invert_active:
                     if delta != 0 and self._ri_hwnd:
                         self._pending_vscroll += -delta
                         if self._vscroll_posted:
@@ -385,7 +383,7 @@ class MouseHook(BaseMouseHook):
                     event = MouseEvent(MouseEvent.HSCROLL_RIGHT, abs(delta))
                     should_block = MouseEvent.HSCROLL_RIGHT in self._blocked_events
 
-                if self.invert_hscroll:
+                if self.invert_hscroll and not self.wheel_native_invert_active:
                     if delta != 0 and self._ri_hwnd and not should_block:
                         self._pending_hscroll += -delta
                         if self._hscroll_posted:

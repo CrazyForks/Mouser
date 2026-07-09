@@ -265,9 +265,10 @@ class MouseHook(BaseMouseHook):
                     Quartz.kCGEventMouseMoved,
                     Quartz.kCGEventOtherMouseDragged,
                 )
-                and self._gesture_direction_enabled
                 and self._gesture_active
             ):
+                if not self._gesture_direction_enabled:
+                    return cg_event
                 dx = Quartz.CGEventGetIntegerValueField(
                     cg_event, Quartz.kCGMouseEventDeltaX
                 )
@@ -373,7 +374,7 @@ class MouseHook(BaseMouseHook):
                     mouse_event = None
                 if should_block:
                     return None
-                if self.invert_vscroll or self.invert_hscroll:
+                if (self.invert_vscroll or self.invert_hscroll) and not self.wheel_native_invert_active:
                     if self._post_inverted_scroll_event(cg_event):
                         return None
 
