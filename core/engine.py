@@ -111,8 +111,13 @@ class Engine:
     # ------------------------------------------------------------------
     # Hook wiring
     # ------------------------------------------------------------------
-    def _setup_hooks(self):
-        """Register callbacks and block events for all mapped buttons."""
+    def _setup_hooks(self, *, defer_wheel_invert=False):
+        """Register callbacks and block events for all mapped buttons.
+
+        When ``defer_wheel_invert`` is True the blocking native wheel-invert
+        write is skipped; the caller is responsible for applying it off the
+        HID listener thread (see ``_on_connection_change``).
+        """
         mappings = get_active_mappings(self.cfg)
 
         # Apply scroll inversion settings to the hook
@@ -187,7 +192,8 @@ class Engine:
         for tap_key, swipe_keys in SWIPE_SET_FOR_TAP.items():
             if mappings.get(tap_key) == "activate_actions_ring":
                 ring_suppressed_swipes.update(swipe_keys)
-        self._apply_wheel_invert_setting()
+        if not defer_wheel_invert:
+            self._apply_wheel_invert_setting()
         # Divert mode shift CID only when the device has the button and
         # at least one profile maps it to an action.  When no device is
         # connected yet, assume the button exists (safe: if the device
@@ -1108,7 +1114,19 @@ class Engine:
                 # per-device gesture recognizers and rawXY hand-off are applied.
                 with self._lock:
                     self.hook.reset_bindings()
-                    self._setup_hooks()
+                    self._setup_hooks(defer_wheel_invert=True)
+                # This callback runs ON the HID listener thread. The native
+                # wheel-invert write blocks until that same thread services the
+                # queued request from its main loop, so applying it here would
+                # deadlock until the request times out. Defer it to a worker so
+                # the listener can return to its loop and complete the write.
+                hg = getattr(self.hook, "_hid_gesture", None)
+                if hg is not None and hasattr(hg, "request_wheel_native_invert"):
+                    threading.Thread(
+                        target=self._apply_wheel_invert_setting,
+                        daemon=True,
+                        name="WheelInvertApply",
+                    ).start()
             self._battery_poll_stop.set()
             if self._battery_poll_thread is not None:
                 self._battery_poll_thread.join(timeout=5)

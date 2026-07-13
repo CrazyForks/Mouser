@@ -536,5 +536,74 @@ class EngineReplayPhaseOneTests(unittest.TestCase):
         engine.hook._hid_gesture.read_smart_shift.assert_not_called()
 
 
+class WheelInvertConnectThreadingTests(unittest.TestCase):
+    """The native wheel-invert write blocks until the HID listener thread
+    services the queued request from its own main loop. Because the connect
+    callback runs ON that listener thread, doing the write inline deadlocks
+    until the request times out. It must be deferred to a worker instead.
+    """
+
+    def _make_engine(self):
+        from core.engine import Engine
+
+        cfg = copy.deepcopy(DEFAULT_CONFIG)
+        with (
+            patch("core.engine.MouseHook", _FakeMouseHook),
+            patch("core.engine.AppDetector", _FakeAppDetector),
+            patch("core.engine.load_config", return_value=cfg),
+        ):
+            return Engine()
+
+    def test_setup_hooks_defers_wheel_invert_when_requested(self):
+        engine = self._make_engine()
+        with patch.object(engine, "_apply_wheel_invert_setting") as apply_mock:
+            engine._setup_hooks(defer_wheel_invert=True)
+            apply_mock.assert_not_called()
+            engine._setup_hooks()
+            apply_mock.assert_called_once_with()
+
+    def test_connect_defers_wheel_invert_off_listener_thread(self):
+        engine = self._make_engine()
+        engine.cfg["settings"]["invert_vscroll"] = True
+        device = SimpleNamespace(
+            name="MX Master 4",
+            has_hires_wheel=True,
+            has_thumbwheel=False,
+            gesture_via_sense_panel=False,
+            supported_buttons=None,
+        )
+        engine.hook.connected_device = device
+        engine.hook.device_connected = True
+        engine.hook._hid_gesture = SimpleNamespace(
+            connected_device=device,
+            request_wheel_native_invert=Mock(return_value=True),
+            set_wheel_divert_active_flags=Mock(),
+            read_battery=Mock(return_value=None),
+            _hires_wheel_idx=0,
+            _thumbwheel_idx=None,
+        )
+        request = engine.hook._hid_gesture.request_wheel_native_invert
+
+        threads = []
+
+        def factory(*args, **kwargs):
+            thread = _RecordedThread(*args, **kwargs)
+            threads.append(thread)
+            return thread
+
+        with patch("core.engine.threading.Thread", side_effect=factory):
+            engine._on_connection_change(True)
+            # The blocking write must NOT run on the listener (callback) thread.
+            request.assert_not_called()
+
+            worker = next(t for t in threads if t.name == "WheelInvertApply")
+            self.assertEqual(worker._target, engine._apply_wheel_invert_setting)
+
+            # Once deferred to the worker, the write is applied with the
+            # configured invert state.
+            worker.run_target()
+            request.assert_called_once_with(True, False)
+
+
 if __name__ == "__main__":
     unittest.main()
