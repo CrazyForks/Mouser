@@ -44,7 +44,7 @@ class ConfigMigrationTests(unittest.TestCase):
 
         migrated = config._migrate(legacy)
 
-        self.assertEqual(migrated["version"], 10)
+        self.assertEqual(migrated["version"], config.DEFAULT_CONFIG["version"])
         self.assertEqual(migrated["profiles"]["default"]["apps"], [])
         self.assertFalse(migrated["settings"]["invert_hscroll"])
         self.assertFalse(migrated["settings"]["invert_vscroll"])
@@ -99,7 +99,7 @@ class ConfigMigrationTests(unittest.TestCase):
 
         migrated = config._migrate(cfg)
 
-        self.assertEqual(migrated["version"], 10)
+        self.assertEqual(migrated["version"], config.DEFAULT_CONFIG["version"])
         self.assertEqual(
             migrated["profiles"]["media"]["apps"],
             ["Microsoft.Media.Player.exe", "VLC.exe"],
@@ -173,7 +173,7 @@ class ConfigMigrationTests(unittest.TestCase):
             ):
                 loaded = config.load_config()
 
-        self.assertEqual(loaded["version"], 10)
+        self.assertEqual(loaded["version"], config.DEFAULT_CONFIG["version"])
         self.assertEqual(loaded["settings"]["dpi"], 800)
         self.assertEqual(loaded["settings"]["action_haptic"], [])
         self.assertTrue(loaded["settings"]["haptic_enabled"])
@@ -206,7 +206,7 @@ class ConfigMigrationTests(unittest.TestCase):
 
         migrated = config._migrate(legacy)
 
-        self.assertEqual(migrated["version"], 10)
+        self.assertEqual(migrated["version"], config.DEFAULT_CONFIG["version"])
         self.assertTrue(migrated["settings"]["start_at_login"])
         self.assertEqual(
             migrated["profiles"]["default"]["mappings"]["mode_shift"],
@@ -270,7 +270,7 @@ class ConfigMigrationTests(unittest.TestCase):
         mappings = migrated["profiles"]["default"]["mappings"]
         settings = migrated["settings"]
 
-        self.assertEqual(migrated["version"], 10)
+        self.assertEqual(migrated["version"], config.DEFAULT_CONFIG["version"])
         # Actions Ring activates from the Sense Panel; the thumb Gesture button
         # keeps its release value ("none") — migration never reassigns it.
         self.assertEqual(mappings["actions_ring"], "activate_actions_ring")
@@ -327,7 +327,7 @@ class ConfigMigrationTests(unittest.TestCase):
 
         migrated = config._migrate(v9_cfg)
 
-        self.assertEqual(migrated["version"], 10)
+        self.assertEqual(migrated["version"], config.DEFAULT_CONFIG["version"])
         self.assertEqual(
             migrated["profiles"]["default"]["mappings"]["gesture"], "app_expose"
         )
@@ -343,7 +343,7 @@ class ConfigMigrationTests(unittest.TestCase):
         """A config already at the current version is not modified."""
         current = json.loads(json.dumps(config.DEFAULT_CONFIG))
         migrated = config._migrate(json.loads(json.dumps(current)))
-        self.assertEqual(migrated["version"], 10)
+        self.assertEqual(migrated["version"], config.DEFAULT_CONFIG["version"])
         self.assertEqual(
             migrated["profiles"]["default"]["mappings"],
             current["profiles"]["default"]["mappings"],

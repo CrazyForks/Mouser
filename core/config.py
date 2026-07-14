@@ -163,7 +163,7 @@ def _default_actions_ring_slots(platform=None):
 
 
 DEFAULT_CONFIG = {
-    "version": 10,
+    "version": 11,
     "active_profile": "default",
     "profiles": {
         "default": {
@@ -205,6 +205,7 @@ DEFAULT_CONFIG = {
         "smart_shift_mode": "ratchet",
         "smart_shift_enabled": False,
         "smart_shift_threshold": 25,
+        "scroll_force": 50,     # 1-100, ratchet firmness (enhanced 0x2111 devices only)
         "gesture_threshold": GESTURE_SENSITIVITY_PX[GESTURE_DEFAULT_SENSITIVITY_INDEX],
         "gesture_commit_window_ms": 400,
         "gesture_settle_ms": 90,
@@ -615,12 +616,20 @@ def _migrate(cfg):
             pdata.setdefault("button_haptic", {})
         cfg["version"] = 10
 
+    if version < 11:
+        # v10 -> v11: scroll force (ratchet firmness) for enhanced
+        # SmartShift (0x2111) devices.
+        settings = cfg.setdefault("settings", {})
+        settings.setdefault("scroll_force", 50)
+        cfg["version"] = 11
+
     cfg.setdefault("settings", {})
     cfg["settings"].setdefault("appearance_mode", "system")
     cfg["settings"].setdefault("debug_mode", False)
     cfg["settings"].setdefault("device_layout_overrides", {})
     cfg["settings"].setdefault("language", "en")
     cfg["settings"].setdefault("ignore_trackpad", True)
+    cfg["settings"].setdefault("scroll_force", 50)
     cfg["settings"].setdefault("screenshot_directory", "")
     cfg["settings"].setdefault("check_for_updates", True)
     cfg["settings"].setdefault("update_check_state", {})
