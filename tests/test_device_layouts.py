@@ -175,6 +175,23 @@ class DeviceLayoutTests(unittest.TestCase):
 
         self.assertIn("mx_master_4", keys)
 
+    def test_exact_m585_m590_layout_uses_catalog_asset(self):
+        layout = get_device_layout("m585_m590")
+        hotspot_keys = {hotspot["buttonKey"] for hotspot in layout["hotspots"]}
+
+        self.assertTrue(layout["interactive"])
+        self.assertEqual(layout["key"], "m585_m590")
+        self.assertEqual(
+            layout["image_asset"],
+            "logitech-mice/m585_m590/mouse.png",
+        )
+        self.assertEqual(
+            hotspot_keys,
+            {"middle", "xbutton1", "xbutton2", "hscroll_left", "hscroll_right"},
+        )
+        self.assertNotIn("gesture", hotspot_keys)
+        self.assertNotIn("mode_shift", hotspot_keys)
+
     def test_exact_mx_master_3s_layout_uses_catalog_asset(self):
         layout = get_device_layout("mx_master_3s")
 
