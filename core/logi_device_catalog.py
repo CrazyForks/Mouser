@@ -94,6 +94,20 @@ M650_BUTTONS = (
     "xbutton2",
 )
 
+# M585 / M590 Multi-Device Mouse: middle click (wheel press), back and forward thumb
+# buttons, plus the scroll wheel's left/right tilt. The wheel tilt reports as horizontal
+# scroll (CIDs 0x005B / 0x005D) and is exposed here as the ``hscroll_left`` /
+# ``hscroll_right`` controls so it can be remapped (for example to left/right click).
+# No physical gesture button or mode-shift; the Virtual Gesture Button (CID 0x00D7) is
+# not surfaced, matching the M650 treatment.
+M590_BUTTONS = (
+    "middle",
+    "xbutton1",
+    "xbutton2",
+    "hscroll_left",
+    "hscroll_right",
+)
+
 
 def _hotspot(
     button_key: str,
@@ -290,6 +304,39 @@ LOGI_DEVICE_SPECS = (
         "dpi_min": 200,
         "dpi_max": 4000,
     },
+    # -- M585 / M590 Multi-Device Mouse --------------------------------------
+    # Compact multi-device mouse. Confirmed via live HID++ probe (see the
+    # discovery dump in core/m590.json): REPROG_CONTROLS_V4, LOWRES_WHEEL and
+    # BATTERY_STATUS. Physical controls are middle click (0x0052), back
+    # (0x0053), forward (0x0056) and the scroll wheel's left/right tilt
+    # (0x005B / 0x005D) which reports as horizontal scroll.
+    #
+    # This device enumerates behind USB Receiver PID 0xC52B, which is *shared*
+    # by several M-series devices, so we intentionally do NOT list it in
+    # ``product_ids`` (that would over-claim every device on the receiver -- see
+    # the fallback note in core/logi_devices.py). We match on the HID product
+    # name/aliases instead; when only the bare receiver PID is reported the
+    # generic layout is used, as before.
+    {
+        "key": "m585_m590",
+        "display_name": "M585/M590 Multi-Device Mouse",
+        "product_ids": (),
+        "aliases": (
+            "M585/M590 Multi-Device Mouse",
+            "M585/M590",
+            "M590 Multi-Device Mouse",
+            "M585 Multi-Device Mouse",
+            "Logitech M590",
+            "Logitech M585",
+            "M590",
+            "M585",
+        ),
+        "ui_layout": "m585_m590",
+        "image_asset": "logitech-mice/m585_m590/mouse.png",
+        "supported_buttons": M590_BUTTONS,
+        "dpi_min": 200,
+        "dpi_max": 8000,
+    },
     # -- G502 family ----------------------------------------------------------
     # Product IDs verified against Solaar's device descriptors. Wireless
     # variants list both the wired USB PID and the Lightspeed receiver WPID.
@@ -374,6 +421,72 @@ LOGI_DEVICE_LAYOUTS = {
         ),
         "hotspots": [],
     },
+    # M585/M590 Multi-Device Mouse: top-down render sourced from Logi Options+.
+    # Middle click (wheel press), back and forward thumb buttons, and the scroll
+    # wheel's left/right tilt are all configurable. The wheel has two distinct
+    # tilt arrows, so each direction gets its own hotspot (``hscroll_left`` /
+    # ``hscroll_right``); selecting the left tilt also reveals the combined
+    # left+right scroll editor shared with the MX Anywhere layouts.
+    "m585_m590": _layout(
+        "m585_m590",
+        "M585/M590 Multi-Device Mouse",
+        "logitech-mice/m585_m590/mouse.png",
+        419,
+        360,
+        [
+            _hotspot(
+                "middle",
+                "Middle button",
+                "mapping",
+                0.50,
+                0.235,
+                label_side="right",
+                label_off_x=150,
+                label_off_y=-40,
+            ),
+            _hotspot(
+                "hscroll_left",
+                "Scroll left",
+                "mapping",
+                0.452,
+                0.25,
+                label_side="left",
+                label_off_x=-170,
+                label_off_y=-45,
+            ),
+            _hotspot(
+                "hscroll_right",
+                "Scroll right",
+                "mapping",
+                0.552,
+                0.25,
+                label_side="right",
+                label_off_x=150,
+                label_off_y=35,
+            ),
+            _hotspot(
+                "xbutton2",
+                "Forward button",
+                "mapping",
+                0.285,
+                0.405,
+                label_side="left",
+                label_off_x=-180,
+                label_off_y=-10,
+            ),
+            _hotspot(
+                "xbutton1",
+                "Back button",
+                "mapping",
+                0.285,
+                0.465,
+                label_side="left",
+                label_off_x=-170,
+                label_off_y=10,
+            ),
+        ],
+        manual_selectable=True,
+    ),
     # Shared placeholder for the G502 family: no device art has been
     # contributed yet, so the page shows the generic silhouette with the
     # G502 button list instead of an interactive hotspot diagram.

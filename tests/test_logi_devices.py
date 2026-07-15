@@ -127,6 +127,49 @@ class LogiDeviceRegistryTests(unittest.TestCase):
         self.assertEqual(info.dpi_min, 200)
         self.assertEqual(info.dpi_max, 4000)
 
+    def test_resolve_m585_m590_by_name_variants(self):
+        for product_name in (
+            "M585/M590 Multi-Device Mouse",
+            "M590",
+            "M585",
+            "Logitech M590",
+        ):
+            with self.subTest(product_name=product_name):
+                device = resolve_device(product_name=product_name)
+
+                self.assertIsNotNone(device)
+                self.assertEqual(device.key, "m585_m590")
+                self.assertEqual(device.ui_layout, "m585_m590")
+
+    def test_shared_receiver_pid_does_not_resolve_to_m585_m590(self):
+        # 0xC52B is a shared USB-receiver PID; the M585/M590 entry must match
+        # on name/alias only so it never over-claims other devices behind it.
+        device = resolve_device(product_id=0xC52B)
+        if device is not None:
+            self.assertNotEqual(device.key, "m585_m590")
+
+    def test_build_m585_m590_connected_device_info_exposes_wheel_tilt(self):
+        info = build_connected_device_info(
+            product_name="M585/M590 Multi-Device Mouse",
+            reprog_controls=[
+                {"cid": 0x0050},
+                {"cid": 0x0051},
+                {"cid": 0x0052},
+                {"cid": 0x0053},
+                {"cid": 0x0056},
+                {"cid": 0x005B},
+                {"cid": 0x005D},
+                {"cid": 0x00D7},
+            ],
+        )
+
+        self.assertEqual(info.key, "m585_m590")
+        self.assertEqual(info.ui_layout, "m585_m590")
+        self.assertEqual(
+            info.supported_buttons,
+            ("middle", "xbutton1", "xbutton2", "hscroll_left", "hscroll_right"),
+        )
+
     def test_mx_anywhere_3s_uses_exact_catalog_layout(self):
         info = build_connected_device_info(product_id=0xB037)
 
