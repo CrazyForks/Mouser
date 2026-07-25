@@ -26,6 +26,7 @@ from core.config import (
 )
 from core import app_catalog
 from core.device_layouts import get_device_layout, get_manual_layout_choices
+from core.key_capture import create_super_key_guard
 from core.key_registry import (
     ShortcutParseError,
     canonical_shortcut_text,
@@ -248,6 +249,7 @@ class Backend(QObject):
     knownAppsChanged = Signal()
     updateAvailable = Signal(str, str)
     updateInstallChanged = Signal()
+    superKeyHeldChanged = Signal()
 
     # Internal cross-thread signals
     _profileSwitchRequest = Signal(str)
@@ -264,6 +266,7 @@ class Backend(QObject):
     _updateInstallProgressRequest = Signal(int)
     _showRingRequest = Signal(list, bool)
     _hideRingRequest = Signal()
+    _superKeyHeldRequest = Signal(bool)
 
     def __init__(self, engine=None, parent=None, root_dir=None):
         super().__init__(parent)
@@ -313,6 +316,8 @@ class Backend(QObject):
         self._update_state = UpdateCheckState.from_dict(
             self._cfg.get("settings", {}).get("update_check_state", {})
         )
+        self._super_key_guard = None    # created on first shortcut recording
+        self._super_key_held = False
         self._update_timer = QTimer(self)
         self._update_timer.setInterval(DEFAULT_AUTO_CHECK_INTERVAL_SECONDS * 1000)
         self._update_timer.timeout.connect(lambda: self._startUpdateCheck(manual=False))
@@ -358,6 +363,14 @@ class Backend(QObject):
             self._handleShowRing, Qt.QueuedConnection)
         self._hideRingRequest.connect(
             self._handleHideRing, Qt.QueuedConnection)
+        self._superKeyHeldRequest.connect(
+            self._handleSuperKeyHeld, Qt.QueuedConnection)
+
+        # Safety net: never leave the shortcut-recording keyboard hook
+        # installed if the app quits while the capture dialog is open.
+        app = QCoreApplication.instance()
+        if app is not None:
+            app.aboutToQuit.connect(self.endShortcutCapture)
 
         self._ring_overlay = None  # created lazily on first show
         self._ring_visible = False  # thread-safe flag (avoids Qt isVisible() off main thread)
@@ -1985,6 +1998,53 @@ class Backend(QObject):
     @Slot(int, int, str, result=str)
     def shortcutComboFromQtEvent(self, key, modifiers, text):
         return _qt_shortcut_combo(key, modifiers, text)
+
+    @Slot(int, int, str, result=str)
+    def shortcutComboFromCaptureEvent(self, key, modifiers, text):
+        """Build a combo from a Qt event, folding in a swallowed Super key.
+
+        While recording on Windows the Super key never reaches Qt (the guard
+        eats it so the Start menu stays closed), so its state comes from the
+        guard instead of the event's modifiers.
+        """
+        modifiers = _qt_enum_int(modifiers)
+        if self._super_key_guard is not None and self._super_key_guard.super_held:
+            modifiers |= _qt_enum_int(Qt.MetaModifier)
+        return _qt_shortcut_combo(key, modifiers, text)
+
+    @Slot(result=bool)
+    def beginShortcutCapture(self):
+        """Arm the recorder's keyboard guard. Returns True when it is active."""
+        if self._super_key_guard is None:
+            self._super_key_guard = create_super_key_guard()
+        try:
+            started = self._super_key_guard.start(self._superKeyHeldRequest.emit)
+        except Exception:
+            started = False
+        self._handleSuperKeyHeld(False)
+        return bool(started)
+
+    @Slot()
+    def endShortcutCapture(self):
+        """Disarm the recorder's keyboard guard (safe to call repeatedly)."""
+        if self._super_key_guard is not None:
+            try:
+                self._super_key_guard.stop()
+            except Exception:
+                pass
+        self._handleSuperKeyHeld(False)
+
+    @Property(bool, notify=superKeyHeldChanged)
+    def superKeyHeld(self):
+        return self._super_key_held
+
+    @Slot(bool)
+    def _handleSuperKeyHeld(self, held):
+        held = bool(held)
+        if held == self._super_key_held:
+            return
+        self._super_key_held = held
+        self.superKeyHeldChanged.emit()
 
     @Slot(str, result=str)
     def canonicalizeCustomShortcut(self, text):

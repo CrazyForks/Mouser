@@ -21,6 +21,26 @@ class LocaleManagerTranslationTests(unittest.TestCase):
                 for key in required:
                     self.assertTrue(strings[key].strip())
 
+    def test_key_capture_recorder_strings_exist_in_all_locales(self):
+        required = {
+            "key_capture.placeholder_recording",
+            "key_capture.record_hint",
+            "key_capture.type_hint",
+            "key_capture.mode_type",
+            "key_capture.mode_record",
+        }
+
+        for locale, strings in _TRANSLATIONS.items():
+            with self.subTest(locale=locale):
+                self.assertTrue(required.issubset(strings))
+                for key in required:
+                    self.assertTrue(strings[key].strip())
+
+    def test_key_capture_help_text_covers_the_supported_function_keys(self):
+        for locale, strings in _TRANSLATIONS.items():
+            with self.subTest(locale=locale):
+                self.assertIn("f24", strings["key_capture.valid_keys"])
+
     def test_update_install_messages_exist_in_all_locales(self):
         required = {
             "scroll.update_idle",

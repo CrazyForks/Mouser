@@ -1132,6 +1132,108 @@ class BackendDeviceLayoutTests(unittest.TestCase):
                 "ctrl+shift+comma",
             )
 
+    def test_capture_event_folds_in_a_swallowed_super_key(self):
+        backend = self._make_backend()
+
+        with patch("ui.backend.sys.platform", "win32"):
+            # Guard idle: nothing to fold in.
+            self.assertEqual(
+                backend.shortcutComboFromCaptureEvent(Qt.Key_A, Qt.NoModifier, "a"),
+                "a",
+            )
+
+            backend._super_key_guard = SimpleNamespace(super_held=True)
+            self.assertEqual(
+                backend.shortcutComboFromCaptureEvent(Qt.Key_A, Qt.NoModifier, "a"),
+                "super+a",
+            )
+            self.assertEqual(
+                backend.shortcutComboFromCaptureEvent(
+                    Qt.Key_A, Qt.ShiftModifier, "A"
+                ),
+                "shift+super+a",
+            )
+
+    def test_capture_event_reports_held_modifiers_without_a_main_key(self):
+        backend = self._make_backend()
+        backend._super_key_guard = SimpleNamespace(super_held=True)
+
+        with patch("ui.backend.sys.platform", "win32"):
+            self.assertEqual(
+                backend.shortcutComboFromCaptureEvent(0, Qt.ControlModifier, ""),
+                "ctrl+super",
+            )
+
+    def test_capture_event_matches_qt_event_combo_when_guard_is_idle(self):
+        backend = self._make_backend()
+
+        with patch("ui.backend.sys.platform", "linux"):
+            self.assertEqual(
+                backend.shortcutComboFromCaptureEvent(
+                    Qt.Key_W, Qt.MetaModifier, "w"
+                ),
+                backend.shortcutComboFromQtEvent(Qt.Key_W, Qt.MetaModifier, "w"),
+            )
+
+    def test_begin_and_end_shortcut_capture_drive_the_guard(self):
+        backend = self._make_backend()
+        events = []
+
+        class _FakeGuard:
+            super_held = False
+
+            def start(self, on_super_changed=None):
+                events.append("start")
+                return True
+
+            def stop(self):
+                events.append("stop")
+
+        with patch("ui.backend.create_super_key_guard", return_value=_FakeGuard()):
+            self.assertTrue(backend.beginShortcutCapture())
+            backend._handleSuperKeyHeld(True)
+            self.assertTrue(backend.superKeyHeld)
+            backend.endShortcutCapture()
+
+        self.assertEqual(events, ["start", "stop"])
+        self.assertFalse(backend.superKeyHeld)
+
+    def test_end_shortcut_capture_is_safe_before_any_capture(self):
+        backend = self._make_backend()
+
+        backend.endShortcutCapture()  # must not raise
+
+        self.assertFalse(backend.superKeyHeld)
+
+    def test_shortcut_capture_survives_a_guard_that_cannot_start(self):
+        backend = self._make_backend()
+
+        class _BrokenGuard:
+            super_held = False
+
+            def start(self, on_super_changed=None):
+                raise OSError("hook refused")
+
+            def stop(self):
+                raise OSError("hook refused")
+
+        with patch("ui.backend.create_super_key_guard", return_value=_BrokenGuard()):
+            self.assertFalse(backend.beginShortcutCapture())
+            backend.endShortcutCapture()
+
+        self.assertFalse(backend.superKeyHeld)
+
+    def test_super_key_held_notifies_only_on_change(self):
+        backend = self._make_backend()
+        notifications = []
+        backend.superKeyHeldChanged.connect(lambda: notifications.append(True))
+
+        backend._handleSuperKeyHeld(True)
+        backend._handleSuperKeyHeld(True)
+        backend._handleSuperKeyHeld(False)
+
+        self.assertEqual(len(notifications), 2)
+
     def test_reserved_custom_shortcut_warning_slot(self):
         backend = self._make_backend()
 

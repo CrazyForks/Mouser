@@ -189,6 +189,15 @@ Two pages accessible from a slim sidebar in [`ui/qml/Main.qml`](ui/qml/Main.qml)
 - **Right panel** — device-aware mouse view. MX Master and MX Anywhere family devices get clickable hotspot dots on the image; unsupported layouts fall back to a generic device card with an experimental "try another supported map" picker.
 - **Add profile** — combo box at the bottom lists known apps (Chrome, Edge, VS Code, VLC, etc.). Click `+` to create a per-app profile.
 
+### Custom shortcut recorder
+
+[`ui/qml/KeyCaptureDialog.qml`](ui/qml/KeyCaptureDialog.qml) has two deliberately separate input modes:
+
+- **Record keys** (default) — the field is read-only and every key press becomes the shortcut. Held modifiers show as a `Ctrl + …` hint until a non-modifier key lands.
+- **Type instead** — a plain text field, so shifted characters such as `+` can be typed without the Shift press replacing the shortcut being written.
+
+On Windows the Super key can't be recorded through Qt alone: the shell acts on the `LWIN`/`RWIN` key-up, so pressing it opens the Start menu and takes focus away from the dialog. While recording, [`core/key_capture.py`](core/key_capture.py) installs a `WH_KEYBOARD_LL` hook that swallows *only* those two virtual keys (injected events are always passed through, so mouse-fired shortcuts keep working) and reports their pressed state to the backend, which folds it into the recorded combo as `Qt.MetaModifier`. The guard is released when the dialog closes, when the mode switches to typing, when the app loses focus, and on `aboutToQuit` — a leaked hook could otherwise swallow the Windows key app-wide. Every other platform gets a no-op guard.
+
 ### Point & scroll
 
 - **DPI slider** — 200 to the device max with quick presets (400, 800, 1000, 1600, 2400, 4000, 6000, 8000). Reads the current DPI from the device on startup.
@@ -223,6 +232,7 @@ mouser/
 │   ├── device_layouts.py        # Device-family layout registry for QML overlays
 │   ├── engine.py                # Core engine — wires hook ↔ simulator ↔ config
 │   ├── hid_gesture.py           # HID++ 2.0 gesture button + SmartShift (0x2110/0x2111)
+│   ├── key_capture.py           # Windows-key guard for the shortcut recorder
 │   ├── key_simulator.py         # Platform-specific action simulator
 │   ├── linux_permissions.py     # hidraw / event / uinput permission report
 │   ├── log_setup.py             # Rotating file log + stdout redirection
@@ -246,7 +256,7 @@ mouser/
 │       ├── Main.qml             # App shell (sidebar + page stack + tray toast)
 │       ├── MousePage.qml        # Merged mouse diagram + profile manager
 │       ├── ScrollPage.qml       # DPI slider + scroll/SmartShift toggles
-│       ├── KeyCaptureDialog.qml # Custom shortcut recorder
+│       ├── KeyCaptureDialog.qml # Custom shortcut recorder (record / type modes)
 │       ├── HotspotDot.qml       # Interactive button overlay on mouse image
 │       ├── ActionChip.qml       # Selectable action pill
 │       ├── AppIcon.qml          # File-icon helper for known apps
