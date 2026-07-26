@@ -26,7 +26,7 @@ from ctypes import (
 from core.key_simulator import MOUSEEVENTF_HWHEEL, MOUSEEVENTF_WHEEL
 from core.key_simulator import inject_scroll as _inject_scroll_impl
 from core.mouse_hook_base import BaseMouseHook, HidGestureListener
-from core.mouse_hook_types import MouseEvent
+from core.mouse_hook_types import MouseEvent, hscroll_event_type
 
 WH_MOUSE_LL = 14
 WM_MOUSEMOVE = 0x0200
@@ -48,7 +48,12 @@ class MSLLHOOKSTRUCT(Structure):
         ("mouseData", wintypes.DWORD),
         ("flags", wintypes.DWORD),
         ("time", wintypes.DWORD),
-        ("dwExtraInfo", ctypes.POINTER(ctypes.c_ulong)),
+        # ULONG_PTR: an opaque *value* the event's sender attached, not an
+        # address. Declaring it as a pointer and reading ``.contents`` treats
+        # whatever number Windows put here as memory to dereference, which
+        # kills the process outright on any event carrying a non-zero value
+        # (issue #252 / #253 -- it fired from the debug logging path).
+        ("dwExtraInfo", wintypes.WPARAM),
     ]
 
 
@@ -255,8 +260,29 @@ class MouseHook(BaseMouseHook):
         # is held, to derive per-move deltas from the LL hook's absolute point.
         self._btn_gesture_last_x = 0
         self._btn_gesture_last_y = 0
+        self._debug_burst_last_at = 0.0
+        self._debug_burst_skipped = 0
         self._init_dispatch_queue(maxsize=512)
         self._dispatch_worker_thread = None
+
+    # Wheel messages arrive in bursts -- a hi-res wheel emits ~15 per detent --
+    # and each debug line costs a Qt signal plus a QML list rebuild. Coalesce
+    # them so turning debug mode on during a scroll doesn't stall the app.
+    _DEBUG_BURST_MESSAGES = (WM_MOUSEWHEEL, WM_MOUSEHWHEEL)
+    _DEBUG_BURST_INTERVAL_S = 0.25
+
+    def _debug_event_allowed(self, wParam):
+        """Return ``(emit, skipped)`` for one debug line from the hook proc."""
+        if wParam not in self._DEBUG_BURST_MESSAGES:
+            return True, 0
+        now = time.monotonic()
+        if now - self._debug_burst_last_at < self._DEBUG_BURST_INTERVAL_S:
+            self._debug_burst_skipped += 1
+            return False, 0
+        skipped = self._debug_burst_skipped
+        self._debug_burst_skipped = 0
+        self._debug_burst_last_at = now
+        return True, skipped
 
     _WM_NAMES = {
         0x0200: "WM_MOUSEMOVE",
@@ -293,15 +319,18 @@ class MouseHook(BaseMouseHook):
             event = None
             should_block = False
 
-            if self.debug_mode and self._debug_callback:
-                wm_name = self._WM_NAMES.get(wParam, f"0x{wParam:04X}")
-                if wParam != 0x0200:
-                    extra = data.dwExtraInfo.contents.value if data.dwExtraInfo else 0
+            if self.debug_mode and self._debug_callback and wParam != WM_MOUSEMOVE:
+                allowed, skipped = self._debug_event_allowed(wParam)
+                if allowed:
+                    wm_name = self._WM_NAMES.get(wParam, f"0x{wParam:04X}")
+                    extra = int(data.dwExtraInfo)
                     info = (
                         f"{wm_name}  mouseData=0x{mouse_data:08X}  "
                         f"hiword={hiword(mouse_data)}  flags=0x{flags:04X}  "
                         f"extraInfo=0x{extra:X}"
                     )
+                    if skipped:
+                        info += f"  (+{skipped} more)"
                     try:
                         self._debug_callback(info)
                     except Exception:
@@ -426,12 +455,10 @@ class MouseHook(BaseMouseHook):
 
             elif wParam == WM_MOUSEHWHEEL:
                 delta = hiword(mouse_data)
-                if delta > 0:
-                    event = MouseEvent(MouseEvent.HSCROLL_LEFT, abs(delta))
-                    should_block = MouseEvent.HSCROLL_LEFT in self._blocked_events
-                elif delta < 0:
-                    event = MouseEvent(MouseEvent.HSCROLL_RIGHT, abs(delta))
-                    should_block = MouseEvent.HSCROLL_RIGHT in self._blocked_events
+                event_type = hscroll_event_type(delta)
+                if event_type:
+                    event = MouseEvent(event_type, abs(delta))
+                    should_block = event_type in self._blocked_events
 
                 if self.invert_hscroll and not self.wheel_native_invert_active:
                     if delta != 0 and self._ri_hwnd and not should_block:

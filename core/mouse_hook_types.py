@@ -73,6 +73,26 @@ class MouseEvent:
         self.timestamp = time.time()
 
 
+def hscroll_event_type(delta):
+    """Map a horizontal-wheel delta to its event type.
+
+    Every platform hook feeds this the raw delta it receives, and all of them
+    report a **positive** value for a rightward tilt/scroll: Win32's
+    ``WM_MOUSEHWHEEL`` documents it, Linux's ``REL_HWHEEL`` follows the same
+    convention, and the Quartz axis-2 delta matches. Keeping the decision in
+    one place is deliberate -- the Windows hook had the two swapped for months
+    (issue #253: tilting the wheel right fired the *left* binding) precisely
+    because each platform spelled the comparison out for itself.
+
+    Returns an empty string for a zero delta, which is not a direction.
+    """
+    if delta > 0:
+        return MouseEvent.HSCROLL_RIGHT
+    if delta < 0:
+        return MouseEvent.HSCROLL_LEFT
+    return ""
+
+
 def format_debug_details(raw_data):
     if raw_data is None:
         return ""

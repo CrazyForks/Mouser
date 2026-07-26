@@ -138,5 +138,53 @@ class AppDetectorMacOSTests(unittest.TestCase):
             )
 
 
+class ExplorerWindowTriageTests(unittest.TestCase):
+    """Issue #252: resolving every explorer.exe popup froze the app.
+
+    A taskbar preview or context menu holding the foreground made the detector
+    enumerate every top-level window and open each owning process, three times
+    a second, until the mouse hook starved.
+    """
+
+    def setUp(self):
+        from core import app_detector
+
+        self.classify = app_detector.classify_explorer_window
+
+    def test_real_explorer_surfaces_are_the_foreground_app(self):
+        for window_class in (
+            "CabinetWClass", "Shell_TrayWnd", "Progman", "WorkerW",
+        ):
+            with self.subTest(window_class=window_class):
+                self.assertEqual(self.classify(window_class), "explorer")
+
+    def test_transient_shell_surfaces_are_skipped_without_any_work(self):
+        for window_class in (
+            "TaskListThumbnailWnd",          # from the issue #252 log
+            "ForegroundStaging",             # from the issue #252 log
+            "XamlExplorerHostIslandWindow",  # from the issue #252 log
+            "Xaml_WindowedPopupClass",
+            "#32768",
+        ):
+            with self.subTest(window_class=window_class):
+                self.assertEqual(self.classify(window_class), "skip")
+
+    def test_unknown_window_is_resolved_once(self):
+        key = (0x1234, "SomeNewShellClass")
+
+        self.assertEqual(self.classify("SomeNewShellClass", key, None), "resolve")
+
+    def test_window_that_resolved_to_nothing_is_not_rescanned(self):
+        key = (0x1234, "SomeNewShellClass")
+
+        self.assertEqual(self.classify("SomeNewShellClass", key, key), "skip")
+
+    def test_memo_is_keyed_by_class_too_so_recycled_handles_still_resolve(self):
+        stale = (0x1234, "SomeNewShellClass")
+        recycled = (0x1234, "ADifferentClass")
+
+        self.assertEqual(self.classify("ADifferentClass", recycled, stale), "resolve")
+
+
 if __name__ == "__main__":
     unittest.main()

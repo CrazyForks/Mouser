@@ -190,7 +190,9 @@ class WindowsSuperKeyGuard(SuperKeyGuard):
                 ("scanCode", wintypes.DWORD),
                 ("flags", wintypes.DWORD),
                 ("time", wintypes.DWORD),
-                ("dwExtraInfo", ctypes.POINTER(ctypes.c_ulong)),
+                # ULONG_PTR value, not an address -- see the note on
+                # MSLLHOOKSTRUCT in core/mouse_hook_windows.py.
+                ("dwExtraInfo", wintypes.WPARAM),
             ]
 
         HOOKPROC = ctypes.CFUNCTYPE(

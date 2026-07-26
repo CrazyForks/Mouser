@@ -119,6 +119,8 @@ Mouser exposes a single `MouseHook` façade in [`core/mouse_hook.py`](core/mouse
 - **Linux** — [`core/mouse_hook_linux.py`](core/mouse_hook_linux.py): `evdev` to grab the physical mouse and `uinput` to forward pass-through events through a virtual device.
 - **Stub** — [`core/mouse_hook_stub.py`](core/mouse_hook_stub.py): inert hook for unsupported platforms / smoke tests.
 
+Horizontal-scroll direction is decided once, in `hscroll_event_type()` ([`core/mouse_hook_types.py`](core/mouse_hook_types.py)): a positive delta is a rightward tilt on all three platforms. Each hook used to spell the comparison out itself, and Windows had it inverted for months — a wheel tilted right fired the left binding (issue #253).
+
 The shared base + types live in [`core/mouse_hook_base.py`](core/mouse_hook_base.py), [`core/mouse_hook_contract.py`](core/mouse_hook_contract.py), and [`core/mouse_hook_types.py`](core/mouse_hook_types.py).
 
 All paths feed the same internal event model and intercept:
@@ -151,7 +153,7 @@ The same module owns the SmartShift integration. It prefers the enhanced feature
 
 [`core/app_detector.py`](core/app_detector.py) polls the foreground window every 300ms.
 
-- **Windows:** `GetForegroundWindow` → `GetWindowThreadProcessId` → process name. UWP apps are resolved via `ApplicationFrameHost.exe` to the actual child process.
+- **Windows:** `GetForegroundWindow` → `GetWindowThreadProcessId` → process name. UWP apps are resolved via `ApplicationFrameHost.exe` to the actual child process. That resolution enumerates every top-level window and opens each owning process, so `classify_explorer_window()` triages `explorer.exe` windows first: real Explorer surfaces are the app, transient shell windows (taskbar previews, Alt-Tab, context menus) are skipped outright, and any other window is resolved at most once — its handle and class are memoised when nothing is found behind it. Without that triage a context menu or taskbar preview held the foreground and re-ran the full scan three times a second, starving the mouse hook (issue #252).
 - **macOS:** `NSWorkspace.frontmostApplication`.
 - **Linux:** `xdotool` (X11) and `kdotool` (KDE Wayland). Other Wayland compositors fall back to the default profile.
 

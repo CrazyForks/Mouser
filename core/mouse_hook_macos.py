@@ -9,7 +9,7 @@ import threading
 import time
 
 from core.mouse_hook_base import BaseMouseHook, HidGestureListener
-from core.mouse_hook_types import MouseEvent
+from core.mouse_hook_types import MouseEvent, hscroll_event_type
 
 try:
     import objc
@@ -413,13 +413,10 @@ class MouseHook(BaseMouseHook):
                         )
                         if v_fixed != 0 and self._post_shift_hscroll_event(cg_event):
                             return None
-                if h_delta != 0:
-                    if h_delta > 0:
-                        mouse_event = MouseEvent(MouseEvent.HSCROLL_RIGHT, abs(h_delta))
-                        should_block = MouseEvent.HSCROLL_RIGHT in self._blocked_events
-                    else:
-                        mouse_event = MouseEvent(MouseEvent.HSCROLL_LEFT, abs(h_delta))
-                        should_block = MouseEvent.HSCROLL_LEFT in self._blocked_events
+                event_type = hscroll_event_type(h_delta)
+                if event_type:
+                    mouse_event = MouseEvent(event_type, abs(h_delta))
+                    should_block = event_type in self._blocked_events
                 if mouse_event:
                     self._enqueue_dispatch_event(mouse_event)
                     mouse_event = None

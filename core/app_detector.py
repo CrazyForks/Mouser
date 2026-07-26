@@ -13,6 +13,62 @@ import threading
 import time
 
 
+# ── Windows explorer.exe window triage (platform-independent policy) ─────────
+# explorer.exe owns both real applications' surfaces and a stream of transient
+# shell windows. Telling them apart matters because the UWP resolution below is
+# expensive: it enumerates every top-level window and opens each owning process.
+# Running that several times a second -- which is what happened while a taskbar
+# preview, Alt-Tab or a context menu held the foreground -- froze the app hard
+# enough to take the mouse hook down with it (issue #252).
+
+# Genuine Explorer usage: explorer.exe *is* the foreground app.
+EXPLORER_SHELL_CLASSES = frozenset({
+    "CabinetWClass",           # File Explorer windows
+    "Shell_TrayWnd",           # Taskbar
+    "Shell_SecondaryTrayWnd",  # Taskbar on secondary monitors
+    "Progman",                 # Desktop
+    "WorkerW",                 # Desktop worker
+})
+
+# Shell surfaces that appear and vanish constantly. They are never an app worth
+# switching profiles for, so they are skipped before any resolution work.
+TRANSIENT_EXPLORER_CLASSES = frozenset({
+    "TaskListThumbnailWnd",          # taskbar thumbnail preview
+    "ForegroundStaging",             # transient window during foreground swaps
+    "XamlExplorerHostIslandWindow",  # Alt-Tab / Task View
+    "Xaml_WindowedPopupClass",       # Windows 11 shell popups / context menus
+    "#32768",                        # classic context menu
+    "TaskSwitcherWnd",
+    "TaskSwitcherOverlayWnd",
+    "MultitaskingViewFrame",
+    "Windows.UI.Core.CoreWindow",    # Start, Search and other shell surfaces
+    "Shell_InputSwitchTopLevelWindow",
+    "tooltips_class32",
+})
+
+
+def classify_explorer_window(window_class, window_key=None, last_unresolved_key=None):
+    """Decide what to do with an explorer.exe foreground window.
+
+    Returns one of:
+      ``"explorer"`` -- genuine Explorer/desktop/taskbar; treat explorer.exe
+        itself as the foreground app.
+      ``"skip"`` -- a transient shell surface, or a window we already scanned
+        without finding an app behind it; keep the current profile and do no
+        work. Re-scanning the same window on every poll is what caused the
+        freeze, so the caller memoises the last unresolved window key (handle
+        plus class, since Windows recycles handles).
+      ``"resolve"`` -- worth the expensive UWP lookup.
+    """
+    if window_class in EXPLORER_SHELL_CLASSES:
+        return "explorer"
+    if window_class in TRANSIENT_EXPLORER_CLASSES:
+        return "skip"
+    if window_key and last_unresolved_key and window_key == last_unresolved_key:
+        return "skip"
+    return "resolve"
+
+
 def _path_from_nsurl(url) -> str | None:
     if url is None:
         return None
@@ -202,14 +258,10 @@ if sys.platform == "win32":
         user32.EnumChildWindows(hwnd, WNDENUMPROC(_enum_cb), 0)
         return result[0]
 
-    # Window classes that belong to genuine explorer.exe usage
-    _EXPLORER_CLASSES = frozenset({
-        "CabinetWClass",           # File Explorer windows
-        "Shell_TrayWnd",           # Taskbar
-        "Shell_SecondaryTrayWnd",  # Taskbar on secondary monitors
-        "Progman",                 # Desktop
-        "WorkerW",                 # Desktop worker
-    })
+    # Last explorer.exe window that was scanned without a real app behind it,
+    # keyed by (handle, class). Mutable single-slot cache: only the detector's
+    # poll thread touches it.
+    _unresolved_explorer_key = [None]
 
     def _get_window_class(hwnd) -> str:
         cls = ctypes.create_unicode_buffer(256)
@@ -258,13 +310,22 @@ if sys.platform == "win32":
             return _single_identity(real)
         if exe_lower == "explorer.exe":
             wc = _get_window_class(hwnd)
-            if wc not in _EXPLORER_CLASSES:
+            window_key = (hwnd, wc)
+            verdict = classify_explorer_window(
+                wc, window_key, _unresolved_explorer_key[0]
+            )
+            if verdict == "skip":
+                # Keep the current profile; nothing here is an app.
+                return ()
+            if verdict == "resolve":
                 title = _get_window_title(hwnd)
                 print(f"[AppDetect] FG: explorer.exe class={wc} title='{title}'")
                 real = _resolve_uwp_child(hwnd)
-                if real:
-                    return _single_identity(real)
-                real = _find_uwp_app_global()
+                if not real:
+                    real = _find_uwp_app_global()
+                if not real:
+                    # Remember it so the next poll skips the scan entirely.
+                    _unresolved_explorer_key[0] = window_key
                 return _single_identity(real)
         return _single_identity(exe_path)
 

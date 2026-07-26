@@ -25,7 +25,7 @@ from core.logi_devices import (
     resolve_device as _resolve_logi_device,
 )
 from core.mouse_hook_base import BaseMouseHook, HidGestureListener
-from core.mouse_hook_types import HidRuntimeState, MouseEvent
+from core.mouse_hook_types import HidRuntimeState, MouseEvent, hscroll_event_type
 
 _LOGI_VENDOR = 0x046D
 _LOG_ONCE_KEYS = set()
@@ -823,17 +823,11 @@ class MouseHook(BaseMouseHook):
 
         rel_hwheel_hi_res = getattr(_ecodes, "REL_HWHEEL_HI_RES", 0x0C)
         if code == _ecodes.REL_HWHEEL or code == rel_hwheel_hi_res:
-            should_block = False
-            if value > 0:
-                should_block = MouseEvent.HSCROLL_RIGHT in self._blocked_events
-            elif value < 0:
-                should_block = MouseEvent.HSCROLL_LEFT in self._blocked_events
+            event_type = hscroll_event_type(value)
+            should_block = bool(event_type) and event_type in self._blocked_events
 
-            if code == _ecodes.REL_HWHEEL:
-                if value > 0:
-                    self._dispatch(MouseEvent(MouseEvent.HSCROLL_RIGHT, abs(value)))
-                elif value < 0:
-                    self._dispatch(MouseEvent(MouseEvent.HSCROLL_LEFT, abs(value)))
+            if code == _ecodes.REL_HWHEEL and event_type:
+                self._dispatch(MouseEvent(event_type, abs(value)))
 
             if should_block:
                 return
