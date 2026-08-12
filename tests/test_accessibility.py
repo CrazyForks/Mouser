@@ -18,10 +18,13 @@ class AccessibilityTests(unittest.TestCase):
             CFRelease=lambda _: None,
         )
 
-        with patch("core.accessibility._load_frameworks", return_value=(
-            fake_app_services,
-            fake_core_foundation,
-        )):
+        with (
+            patch.object(accessibility.sys, "platform", "darwin"),
+            patch("core.accessibility._load_frameworks", return_value=(
+                fake_app_services,
+                fake_core_foundation,
+            )),
+        ):
             self.assertFalse(accessibility.is_process_trusted())
 
     def test_macos_framework_load_failure_is_not_trusted(self):
@@ -62,6 +65,7 @@ class AccessibilityTests(unittest.TestCase):
         )
 
         with (
+            patch.object(accessibility.sys, "platform", "darwin"),
             patch("core.accessibility._load_frameworks", return_value=(
                 fake_app_services,
                 fake_core_foundation,
